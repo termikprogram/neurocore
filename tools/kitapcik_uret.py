@@ -89,6 +89,18 @@ def tablo(doc: Document, basliklar: list[str], satirlar: list[list[str]],
         for row in t.rows:
             for i, g in enumerate(genislikler):
                 row.cells[i].width = Cm(g)
+
+    # ⚠ Ölçüldü: uzun tablo satırları sayfalar arasında **bölünüyordu**
+    # (13. sayfada boş hücrelerle devam eden satır). Satır bölmeyi kapat
+    # ve başlık satırını her sayfada tekrarla.
+    for idx, row in enumerate(t.rows):
+        trPr = row._tr.get_or_add_trPr()
+        cant = OxmlElement("w:cantSplit")
+        trPr.append(cant)
+        if idx == 0:
+            hdr = OxmlElement("w:tblHeader")
+            trPr.append(hdr)
+
     doc.add_paragraph().paragraph_format.space_after = Pt(0)
 
 
@@ -227,6 +239,8 @@ def uret() -> Path:
         "14. Ölçülen Değerler",
         "15. Sorun Giderme",
         "16. Sözlük",
+        "17. İşi Parçalara Bölme (WorkStep · parça · günlük · devam)",
+        "18. Sıfırdan İnşa: Geliştirme Aşamaları",
         "Ek A. Dosya Haritası",
     ]
     for satir in icerik:
@@ -704,6 +718,129 @@ havuz       ─┘   (kind/conf)                  (batch/lr/adım)     │
         ("Doğrulama kaybı", "Görülmemiş verideki kayıp; asıl başarı ölçüsü."),
     ]
     tablo(doc, ["Terim", "Tanım"], [[t, a] for t, a in terimler])
+
+    # ══ 17 ══
+    doc.add_heading("17. İşi Parçalara Bölme", level=1)
+    doc.add_paragraph(
+        "Ajan döngüsü (bölüm 3) tek bir konuşma turunu yürütür. Büyük işler "
+        "ise **köprü** (`AgentBridge`) üzerinden parçalanır: görev → adım → "
+        "kaynak ihtiyacına göre **parça** → sırayla/paralel yürütme → günlük. "
+        "Amaç: uzun işi kesintiye dayanıklı, kaynak sınırına uyan küçük "
+        "birimlere ayırmak.")
+    kod(doc, """görev (objective)
+   │ plan_steps()            # sözlük planı → WorkStep listesi
+   ▼
+WorkStep × N  (her biri: needs{cpu, ram_mb, vram_mb}, depends_on, estimate_s)
+   │ _chunk_ceiling() + chunk_ratio       # kaynak bütçesine göre grupla
+   ▼
+WorkChunk × M  (parça = birlikte çalışan adımlar)
+   │ run() / run_until_done(poll_s=15)
+   ▼
+sonuç + WorkJournal (JSONL, eklemeli)  ──kesinti──▶  resume_state() / pending_steps()""")
+
+    altbaslik(doc, "17.1 Adım modeli (WorkStep)")
+    tablo(doc,
+          ["Alan", "Anlam"],
+          [["id, title", "kimlik ve insan-okur başlık"],
+           ["kind", "`tool` (araç) · `think` (aday seçimi) · `generic`"],
+           ["needs", "`{cpu, ram_mb, vram_mb}` — yönetişim sığdırma kararı"],
+           ["depends_on", "önce bitmesi gereken adımlar (zincir)"],
+           ["estimate_s", "tahmini süre; sıralama ve parça dengesi için"],
+           ["status", "bekliyor · çalışıyor · bitti · atlandı · hata"],
+           ["chunk_id", "hangi parçaya atandı"]])
+
+    altbaslik(doc, "17.2 Bölme algoritması")
+    kod(doc, """plan_steps(objective, plan):
+1  HER ham adım için:
+2      tur  ← ham.kind ∨ (candidates varsa "think" yoksa "tool")
+3      ihtiyaç ← ham.needs ∨ resources_for_tool(araç)     # aile varsayılanı
+4      süre ← ham.estimate_s ∨ estimate_for_tool(araç)
+5      EĞER ham.needs_previous → depends_on ← [önceki_adım]
+6      DÖNDÜR WorkStep(id=t000…, needs, depends_on, estimate_s)
+
+parçala(bütçe):
+1  tavan ← bütçe × chunk_ratio                # bütçenin parça payı
+2  hedef_parça ← round(1 / chunk_ratio)       # parça boyu ile tutarlı
+3  DÖNGÜ adımlar (bağımlılık sırası korunarak):
+4      EĞER adım tavanı aşıyor → yeni parça aç
+5      EĞER chunk_steps (8) üst sınırına ulaşıldı → yeni parça
+6      adımı parçaya ata; chunk_id yaz
+7  DÖNDÜR WorkChunk listesi
+
+yürüt(snapshot, max_chunks):
+1  EĞER max_wait_s > 0 → run_until_done(poll_s)   # kaynak/onay bekler
+2  DEĞİLSE            → run(max_chunks)
+3  sığmayan parça → **ertelenir** (chunks_deferred), sonra yeniden denenir
+4  HER adım sonucu günlüğe yazılır (JSONL)""")
+
+    altbaslik(doc, "17.3 Kesintiye dayanıklılık")
+    doc.add_paragraph(
+        "Günlük **JSONL** (satır başına bir kayıt) tutulur. Tek bir JSON "
+        "dosyası yazılırken kesinti olursa **tümü** kaybolurdu; JSONL'de "
+        "yarım kalan son satır atlanır, öncekiler okunur. Kesintiden sonra "
+        "`resume_state()` kaldığı yeri, `pending_steps()` kalan adımları "
+        "bildirir; iş yeniden planlanmadan sürer.")
+    doc.add_paragraph(
+        "Parça içindeki `think` adımı, düşünme döngüsünü (bölüm 4) kullanır: "
+        "adaylar verilir, yerel model seçer, seçim günlüğe yazılır. Onay "
+        "gerektiren adımlar `pending_approvals()` ile raporlanır ve "
+        "onaylanmadan çalışmaz.")
+
+    # ══ 18 ══
+    doc.add_heading("18. Sıfırdan İnşa: Geliştirme Aşamaları", level=1)
+    doc.add_paragraph(
+        "Proje boş bir klasörden bugünkü hâline **ölçüm → kök neden → düzeltme "
+        "→ test → rapor** döngüsüyle geldi. Her aşamada önce ölçüldü, sonra "
+        "değiştirildi; hiçbir iyileştirme 'ölçülmeden' kabul edilmedi.")
+    tablo(doc,
+          ["Aşama", "Ne yapıldı", "Ölçülen sonuç / ders"],
+          [["0 · Doğrulama",
+            "Mevcut durumun gerçekten öğrenip öğrenmediği ölçüldü",
+            "Doğrulama kaybı **hiç ölçülmüyordu**; LR ömür boyu sayaç "
+            "yüzünden 5e-06'ya sabitlenmişti; eğitim 61k havuz yerine 600 "
+            "kasa notuyla yapılıyordu"],
+           ["1 · Veri havuzu",
+            "61.195 kayıt tekilleştirildi, başlık grubu ile bölündü",
+            "8.850 mükerrer (%14) → 52.345 tekil · v2: 44.422 eğitim / "
+            "4.018 doğrulama · içerik ve başlık sızıntısı **0**"],
+           ["2 · Eğitim",
+            "Doğrulamalı eğitim; plan/veri/checkpoint hattı",
+            "1.566 adım: doğrulama 2,6645 → 1,7704 (**−%33,6**); bugün "
+            "toplam 15.904 adım · 107,46M token"],
+           ["3 · Değerlendirme",
+            "Kalite kapısı ve üretim ölçümü",
+            "Kapı çöpü kabul ediyordu (%16,7 gerçek kelime) → zorunlu "
+            "sözcük ölçütü eklendi; kapı doğruluğu **%100**"],
+           ["4 · Düşünme + araştırma",
+            "ThinkingLoop ajana bağlandı; araştırma araçları çekirdeğe",
+            "`CORE_TOOLS` 25 → **28**; plan artık 3 aday arasından yerel "
+            "modelle seçiliyor (0 → kullanımda)"],
+           ["5 · Talimat verisi",
+            "Soru→cevap çiftleri; iki ayrı doğrulama",
+            "6.010 çift (6.000 havuz + 10 elden DXGI/TDR); talimat kaybı "
+            "−%18, belge kaybı +%18 (takas ölçüldü)"],
+           ["6 · Ortak havuz",
+            "`/peer/job`, yaşam döngüsü, ajan iş paylaşımı",
+            "Relay 6/6 ve iş paylaşımı 5/5; devralma 2,7 sn; tünel 6,3 sn"],
+           ["7 · Kararlılık",
+            "Donanım/sürücü arızaları ve kasa gürültüsü",
+            "GPU sürücüsü TDR ile sıfırlanıyordu (`nvlddmkm` 153) → "
+            "`batch 8` ile 300 adım kesintisiz; ssh penceresi gizlendi; "
+            "kasa için **4 kalite kuralı"]])
+    altbaslik(doc, "18.1 Ayrı bir üretim hattı: Blender varlıkları")
+    doc.add_paragraph(
+        "Blender tarafı 26 turda ayrı bir hat olarak kuruldu: 6 kategori "
+        "varlık üretimi, 12 animasyon tarifi, 24 geçiş çifti, doku bulma/"
+        "uygulama, UV dikiş, 4 açıdan önizleme ve 15 katman/54 derslik "
+        "Blender mantık müfredatı. Bu hat, sistemin 'araç + doğrulama' "
+        "yaklaşımının somut kanıtıdır.")
+    altbaslik(doc, "18.2 Değişmez yöntem")
+    kod(doc, """1  ÖLÇ      : mevcut davranışı sayıyla yaz (kayıp, süre, oran)
+2  KÖK NEDEN: tek tek hipotezleri ölçerek ele (BOS, maske, tokenizer…)
+3  DÜZELT   : en küçük değişiklik; sessiz yutma yok
+4  TEST     : ağsız birim testi + gerçek uçtan uca ölçüm
+5  RAPOR    : önce/sonra sayıları ve "kalıcı dersler" başlığı
+6  YAYIN    : commit + push; her iddia ölçüme bağlı""")
 
     # ══ Ek A ══
     doc.add_heading("Ek A. Dosya Haritası", level=1)
