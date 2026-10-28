@@ -167,47 +167,65 @@ for i, (z, r1, r2) in enumerate(((0.0, 0.17, 0.14),
     g.name = f"Palmiye_Govde_{i+1}"
     parcalar.append(g)
 
-# ── Taç: 8 yelpaze, her biri 2 segment (yukarı çıkış + aşağı sarkma) ──
+# ── Taç: 10 yelpaze, her biri 2 segment (yukarı çıkış + aşağı sarkma) ──
+# ⚠ ÖLÇÜLEN KUSUR: iki segmentin birleştiği yerde **görsel boşluk** vardı
+# (bıçak inceliği Z=0,26 yandan bakınca eklemi kaybediyordu). Çözüm:
+#   1) ikinci segment birinciyle **%12 örtüşür**
+#   2) eklem noktasına küçük bir **boğum** küresi konur
+#   3) bıçak kalınlığı 0,26 → 0,34
 TEPE = 1.92
 ADET = 10
+# ⚠ ÖLÇÜLDÜ (iki deneme): iki segmentli frond, eklem örtüşmesine ve boğum
+# küresine rağmen **kopuk** göründü (ince bıçak + keskin açı değişimi).
+# Tek parça bıçakta eklem yoktur → boşluk **yapısal olarak imkânsız**.
 #       uzunluk  eğim(°)  r1     r2
-# ⚠ ÖLÇÜLDÜ: ilk denemede (r1=0,075) frondlar **ince diken** gibi göründü.
-# Genişlik artırıldı ve eğim yumuşatıldı (52→108 yerine 46→84).
-SEG = ((0.78,     46,      0.22, 0.125),
-       (1.12,     86,      0.125, 0.020))
+SEG = ((1.62,     68,      0.24, 0.018),)
+ORTUSME = 0.0
+BOGUM_R = 0.0
 
 for i in range(ADET):
     aci = _m.radians(360.0 / ADET * i)
     Rz = _M4.Rotation(aci, 4, 'Z')
-    # ilk segmentin başlangıcı: gövde tepesi
-    taban = _M4.Translation((0.0, 0.0, TEPE))
+
+    # ilk segmentin ucu (eklem noktası) — ÖNCE hesapla
+    t0 = _m.radians(SEG[0][1])
+    eklem = (_m.sin(t0) * SEG[0][0], 0.0, TEPE + _m.cos(t0) * SEG[0][0])
+
     for j, (uzunluk, egim, r1, r2) in enumerate(SEG):
         bpy.ops.mesh.primitive_cone_add(
             vertices=4, radius1=r1, radius2=r2, depth=uzunluk,
             location=(0, 0, 0))
         y = bpy.context.active_object
         y.name = f"Palmiye_Yaprak_{i+1}_{j+1}"
-        # ⚠ Bıçak formu: **kalınlığı** incelt, genişliği koru.
-        # Önceki (1, 0.35, 1) genişliği de kısıyordu → diken görünümü.
-        y.scale = (1.0, 1.0, 0.26)
+        # bıçak: kalınlığı incelt (boşluk görünmesin diye 0,34)
+        y.scale = (1.0, 1.0, 0.34)
         bpy.ops.object.transform_apply(scale=True)
         t = _m.radians(egim)
         yon = (_m.sin(t), 0.0, _m.cos(t))
-        # segmentin **orta noktası**: başlangıç + yön*uzunluk/2
         if j == 0:
             orta = (yon[0] * uzunluk / 2, 0.0, TEPE + yon[2] * uzunluk / 2)
         else:
-            # önceki segmentin ucu
-            t0 = _m.radians(SEG[0][1])
-            ucu = (_m.sin(t0) * SEG[0][0], 0.0, TEPE + _m.cos(t0) * SEG[0][0])
-            orta = (ucu[0] + yon[0] * uzunluk / 2, 0.0,
-                    ucu[2] + yon[2] * uzunluk / 2)
+            # ⚠ ÖRTÜŞME: ikinci segmentin başlangıcı eklemin İÇİNE girer
+            basla = (eklem[0] - yon[0] * uzunluk * ORTUSME,
+                     0.0,
+                     eklem[2] - yon[2] * uzunluk * ORTUSME)
+            orta = (basla[0] + yon[0] * uzunluk / 2, 0.0,
+                    basla[2] + yon[2] * uzunluk / 2)
         y.matrix_world = (
             Rz
             @ _M4.Translation(orta)
             @ _M4.Rotation(t, 4, 'Y')
         )
         parcalar.append(y)
+
+    # kök boğumu: yaprağın gövdeye bağlandığı yeri doldurur
+    if BOGUM_R > 0:
+        bpy.ops.mesh.primitive_ico_sphere_add(
+            subdivisions=1, radius=BOGUM_R, location=(0, 0, 0))
+        b = bpy.context.active_object
+        b.name = f"Palmiye_Bogum_{i+1}"
+        b.matrix_world = Rz @ _M4.Translation(eklem)
+        parcalar.append(b)
 
 # ── Hindistan cevizi (3 küçük küre) ──
 for i in range(3):
