@@ -48,6 +48,32 @@ if HAS_TORCH:  # pragma: no cover
 
 # ─── Yapılandırma ve Plan ───────────────────────────────────────────────────
 
+def amp_dtype(device: str = "cuda") -> "torch.dtype":
+    """
+    AMP için **doğru** kayan nokta türünü seçer.
+
+    ⚠ ÖLÇÜM/MANTIK: fp16, Pascal (sm_61) ve öncesinde **taşma/underflow**
+    yapar (1080 Ti'de eğitim çöktü). Ampere (sm_80), Ada, Hopper ve
+    ROCm gfx90a+ **bf16'yı donanımda** destekler: üstel aralık fp32 ile
+    aynıdır, `GradScaler` gerekmez.
+
+    Returns:
+        `torch.bfloat16` (destekleniyorsa) aksi hâlde `torch.float16`.
+    """
+    try:
+        if device.startswith("cuda") and torch.cuda.is_available():
+            # ⚠ TUZAK (ölçüldü): `is_bf16_supported()` 1080 Ti'de (sm_61)
+            # **True** dönüyor çünkü bf16'yı fp32'ye çevirerek taklit ediyor.
+            # Emülasyon eğitimi yavaşlatır; gerçek bf16 için SM >= 8.0
+            # (Ampere/Ada/Hopper) veya ROCm gfx90a+ gerekir.
+            major, _minor = torch.cuda.get_device_capability(0)
+            if major >= 8 and torch.cuda.is_bf16_supported():
+                return torch.bfloat16
+    except Exception:
+        pass
+    return torch.float16
+
+
 @dataclass
 class TrainingPlan:
     """
@@ -1079,9 +1105,18 @@ class Trainer:
 
         self._scheduler = self._build_scheduler(self._optimizer, plan)
         if plan.use_amp:
-            self._scaler = self._make_scaler()
+            # ⚠ bf16'da GradScaler **gerekmez** (fp32 ile aynı üstel aralık);
+            # yalnız fp16'da ölçekleme yapılır.
+            hedef_cihaz = str(getattr(model, "_next_device",
+                                      lambda: torch.device("cpu"))())
+            self._amp_dtype = amp_dtype(hedef_cihaz)
+            self._scaler = (self._make_scaler()
+                            if self._amp_dtype == torch.float16 else None)
+            logger.info(f"AMP: dtype={self._amp_dtype} · "
+                        f"scaler={'var' if self._scaler else 'yok'}")
         else:
             self._scaler = None
+            self._amp_dtype = torch.float16
 
         device = getattr(model, "_next_device", lambda: torch.device("cpu"))()
         backbone.train()
@@ -1231,12 +1266,17 @@ class Trainer:
                     tokens_this_step += int(input_ids.numel())
 
                     try:
-                        if plan.use_amp and self._scaler is not None:
-                            with torch.amp.autocast("cuda"):
+                        if plan.use_amp:
+                            with torch.amp.autocast("cuda",
+                                                    dtype=self._amp_dtype):
                                 output = backbone(input_ids, attention_mask=attention_mask,
                                                   labels=labels)
                                 loss = (output["loss"] + output["aux_loss"]) / plan.grad_accumulation
-                            self._scaler.scale(loss).backward()
+                            # ⚠ bf16'da scaler yok → doğrudan backward
+                            if self._scaler is not None:
+                                self._scaler.scale(loss).backward()
+                            else:
+                                loss.backward()
                         else:
                             output = backbone(input_ids, attention_mask=attention_mask,
                                               labels=labels)

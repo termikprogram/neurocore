@@ -6,9 +6,9 @@ small neural model in the background, and can share work with other
 NeuroCore machines over SSH — never spending more than 90 % of the resources
 you actually have free.
 
-![NeuroCore main window](docs/images/app-main.png)
+![NeuroCore main window](docs/images/app-main-en.png)
 
-<sub>Real screenshot: DeepSeek provider active, 83 tools registered, 4,670 tokens used on the status bar.</sub>
+<sub>Real screenshot (`?lang=en`): DeepSeek provider active, 83 tools registered, 20 tokens on the status bar. The UI ships Turkish and switches to English automatically when your browser is not Turkish.</sub>
 
 ---
 
@@ -135,6 +135,16 @@ python -m venv .venv
 .venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
+### Linux / macOS
+
+```bash
+bash kur_istemci.sh              # detects GPU, picks the wheel
+bash kur_istemci.sh --sadece-gpu # print the decision only
+```
+
+Detection: `nvidia-smi` → `cu124`/`cu121`/`cu118`; `rocminfo` or `/opt/rocm` →
+`rocm6.2`; macOS → `cpu`; no GPU → `cpu`.
+
 **AMD on Linux (ROCm)** — use the ROCm wheel, the code needs no changes
 because PyTorch exposes ROCm through `torch.cuda.*`:
 
@@ -238,6 +248,20 @@ python tools\model_payi.py          # local vs cloud model usage
 | Apple Silicon | shared | MPS | ❌ | no MPS branch → CPU |
 | Intel Arc / XPU | 8–16 GB | XPU | ❌ | no XPU branch → CPU |
 
+### AMP dtype is chosen automatically
+
+| Hardware | dtype | GradScaler |
+|---|---|---|
+| Pascal (1080 Ti, sm_61) | `float16` | yes |
+| Ampere / Ada / Hopper (sm_80+) | **`bfloat16`** | no (not needed) |
+| AMD ROCm gfx90a+ | **`bfloat16`** | no |
+| CPU | `float32` | no |
+
+> Pitfall found while implementing: `torch.cuda.is_bf16_supported()` returns
+> **True** on a 1080 Ti because PyTorch *emulates* bf16 by upcasting to fp32.
+> The selector therefore also requires `compute capability >= 8.0`, so Pascal
+> keeps the old fp16 + scaler path (verified: sm_61 → fp16, sm_86/90 → bf16).
+
 **CPU fallback is graceful** — measured: with `torch.cuda.is_available()`
 forced to `False`, the resource governor and the model both initialise and
 fall back to CPU. The *agent* is unaffected (cloud LLM does the thinking);
@@ -263,8 +287,9 @@ English costs ~20–40 % more tokens; round-trip encode/decode is correct in
 both languages. The **local model** remains Turkish-centric (it was trained
 on Turkish notes) — the cloud model handles English natively.
 
-UI labels and the main documentation are Turkish; this file is the English
-entry point. See also [docs/SPEC.md](docs/SPEC.md) for the technical contract.
+**The UI itself is bilingual now**: `web/i18n.js` translates the Turkish
+interface when the browser language is not Turkish (`?lang=en` forces it,
+`?lang=tr` disables it). Screenshots above are from that mode. See also [docs/SPEC.md](docs/SPEC.md) for the technical contract.
 
 ## 10. Output examples
 
@@ -283,9 +308,9 @@ entry point. See also [docs/SPEC.md](docs/SPEC.md) for the technical contract.
 - **No MPS/XPU** backend.
 - **Pascal needs small batches**: `--batch 8 --amp-yok`, otherwise driver resets.
 - **Local model is small and Turkish-centric** (0.51 tokens/param).
-- **No bf16 auto-selection yet**: AMP uses fp16+scaler everywhere; A100/H100
-  would be more stable with bf16.
-- The UI is Turkish; only this document is English.
+- **UI translation is dictionary-based**: strings not in `web/i18n.js` stay
+  Turkish (contributions welcome — one JS object).
+- **No multi-GPU / NCCL.**
 
 ---
 

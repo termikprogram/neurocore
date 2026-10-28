@@ -308,12 +308,13 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
         stamp = f"{_asset_stamp()}"
         content = content.replace('/app.js"', f'/app.js?v={stamp}"')
         content = content.replace('/style.css"', f'/style.css?v={stamp}"')
+        content = content.replace('/i18n.js"', f'/i18n.js?v={stamp}"')
         return HTMLResponse(content, headers={"Cache-Control": "no-store"})
 
     def _asset_stamp() -> str:
         """Arayüz dosyalarının son değişiklik zamanına dayalı sürüm damgası."""
         latest = 0.0
-        for name in ("app.js", "style.css", "index.html"):
+        for name in ("app.js", "style.css", "i18n.js", "index.html"):
             candidate = web_root / name
             try:
                 latest = max(latest, candidate.stat().st_mtime)
@@ -327,6 +328,17 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
         target = web_root / "app.js"
         if not target.exists():
             raise HTTPException(status_code=404, detail="app.js yok")
+        return FileResponse(
+            target, media_type="application/javascript; charset=utf-8",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @app.get("/i18n.js")
+    async def i18n_js() -> Any:
+        """Arayüz dil katmanı (TR → EN)."""
+        target = web_root / "i18n.js"
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="i18n.js yok")
         return FileResponse(
             target, media_type="application/javascript; charset=utf-8",
             headers={"Cache-Control": "no-store"},
