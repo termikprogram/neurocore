@@ -119,6 +119,26 @@ def apply_workspace(state: AppState, path: str) -> List[str]:
 from neurocore.net.peer_pool import IZINLI_ARACLAR as PEER_IZINLI_ARACLAR
 
 
+async def _hizli_oku(fn: Any, varsayilan: Any, *, zaman_asimi: float = 2.0) -> Any:
+    """
+    Kilit tutabilecek okumayı **ayrı iş parçacığında** ve **zaman aşımıyla** yapar.
+
+    ⚠ ÖLÇÜLDÜ: ajan bir aracı çalıştırırken `registry` kilidini tutuyor;
+    `/api/state` doğrudan `registry.get_stats()` çağırdığı için **tüm istek
+    bloklanıyordu** (görev sırasında 6 sn'lik istemci zaman aşımı aşıldı,
+    arayüz dondu). Artık kilit beklense bile yalnız bu okuma bekler; olay
+    döngüsü ve diğer uçlar yanıt vermeye devam eder.
+    """
+    import asyncio
+
+    try:
+        return await asyncio.wait_for(asyncio.to_thread(fn), timeout=zaman_asimi)
+    except asyncio.TimeoutError:
+        return varsayilan
+    except Exception:
+        return varsayilan
+
+
 def peer_job_isle(state: Any, payload: Any) -> Dict[str, Any]:
     """
     `/peer/job` mantığı — **HTTP'den bağımsız** (test edilebilir).
@@ -336,10 +356,12 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
         _check_origin(request)
         if state.learner is None:
             return _json({"ok": False, "error": "öğrenme kaydedicisi yok"})
-        try:
-            status = state.learner.status()
-        except Exception as exc:
-            return _json({"ok": False, "error": str(exc)}, status=500)
+        # ⚠ Eğitim sürerken `status()` model/kilicinde bekleyebilir
+        status = await _hizli_oku(state.learner.status, None, zaman_asimi=3.0)
+        if status is None:
+            return _json({"ok": False,
+                          "error": "öğrenme durumu şu an okunamadı (meşgul)"},
+                         status=503)
         status["ok"] = True
         status["recent"] = state.learner.records(limit=12)
         return _json(status)
@@ -410,9 +432,13 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
     async def get_state(request: Request) -> Any:
         """Genel durum: çalışma alanı, özerklik, model, araç sayıları."""
         _check_origin(request)
-        autonomy = state.registry.policy.to_dict() if state.registry else {}
-        llm = state.router.status() if state.router else {}
-        tools = state.registry.get_stats() if state.registry else {}
+        # ⚠ Kilit tutabilecek okumalar: iş parçacığı + 2 sn zaman aşımı
+        autonomy = (await _hizli_oku(state.registry.policy.to_dict, {})
+                    if state.registry else {})
+        llm = (await _hizli_oku(state.router.status, {})
+               if state.router else {})
+        tools = (await _hizli_oku(state.registry.get_stats, {})
+                 if state.registry else {})
         return _json({
             "ok": True,
             "workspace": state.workspace,

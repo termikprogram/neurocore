@@ -190,6 +190,61 @@ class TestHiyerarsi(unittest.TestCase):
 
 # ─── 4-5) Döngü: sıkıştırma ve ipucu ───────────────────────────────────────
 
+class TestMesajOnarimi(unittest.TestCase):
+    """
+    ⚠ ÖLÇÜLEN HATA: bağlam sıkıştırması kuyruğu bir `tool` mesajının
+    ortasından başlatınca sağlayıcı **HTTP 400** verdi:
+    "Messages with role 'tool' must be a response to a preceding message
+    with 'tool_calls'". Bu testler o hatanın geri dönmesini engeller.
+    """
+
+    def _dongu(self) -> Any:
+        from neurocore.agent.loop import AgentLoop
+
+        return AgentLoop()
+
+    def test_yetim_tool_atilir(self) -> None:
+        from neurocore.agent.llm import LLMMessage
+
+        loop = self._dongu()
+        mesajlar = [
+            LLMMessage("system", "s"),
+            LLMMessage("tool", "yetim sonuç", tool_call_id="x1"),
+            LLMMessage("user", "devam"),
+        ]
+        loop._mesajlari_onar(mesajlar)
+        self.assertEqual([m.role for m in mesajlar], ["system", "user"])
+
+    def test_eslesen_tool_kalir(self) -> None:
+        from neurocore.agent.llm import LLMMessage
+
+        loop = self._dongu()
+        a = LLMMessage("assistant", "")
+        a.tool_calls = [{"id": "c1", "function": {"name": "x"}}]
+        mesajlar = [LLMMessage("system", "s"), a,
+                    LLMMessage("tool", "sonuç", tool_call_id="c1"),
+                    LLMMessage("user", "devam")]
+        loop._mesajlari_onar(mesajlar)
+        self.assertEqual([m.role for m in mesajlar],
+                         ["system", "assistant", "tool", "user"])
+
+    def test_sikistirma_tool_ile_baslamaz(self) -> None:
+        from neurocore.agent.cognition import HedefDurumu
+        from neurocore.agent.llm import LLMMessage
+
+        loop = self._dongu()
+        loop._hedef = HedefDurumu(hedef="g")
+        loop._hedef.olgu_ekle("kanıt")
+        mesajlar = [LLMMessage("system", "s")]
+        # son 10 mesajın ilki `tool` olacak şekilde düzenle
+        mesajlar += [LLMMessage("user", f"u{i}") for i in range(20)]
+        for _ in range(6):
+            mesajlar.append(LLMMessage("tool", "t", tool_call_id="yok"))
+        loop._baglami_sikistir(mesajlar)
+        self.assertNotEqual(mesajlar[1].role, "tool")
+        self.assertTrue(all(m.role != "tool" for m in mesajlar))
+
+
 class TestDonguYetenekleri(unittest.TestCase):
 
     def _dongu(self) -> Any:

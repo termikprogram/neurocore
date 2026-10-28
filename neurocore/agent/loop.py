@@ -599,8 +599,17 @@ PROVIDER_BUDGETS: Dict[str, Dict[str, int]] = {
 DEFAULT_BUDGET: Dict[str, int] = {"max_tools": 22, "max_tokens": 8192}
 
 
+#: Göreve gönderilecek varsayılan araç bütçesi.
+#:
+#: ⚠ ÖLÇÜLDÜ: `CORE_TOOLS` **28** araç ama bütçe **22** idi → her görevde
+#: en az 6 çekirdek araç listeye **hiç girmiyordu** (ölçüm: `asset.animasyon`
+#: 4 farklı görevde 0/4 seçildi). Bütçe çekirdeği kapsayacak şekilde
+#: 34'e çıkarıldı (sağlayıcı sınırı ~63 araç; 413 riski yok).
+VARSAYILAN_ARAC_BUTCESI = 40
+
+
 def select_tools(task: str, registry: ToolRegistry,
-                 max_tools: int = 22) -> List[str]:
+                 max_tools: int = VARSAYILAN_ARAC_BUTCESI) -> List[str]:
     """
     Göreve uygun araç adlarını seçer.
 
@@ -669,7 +678,15 @@ def select_tools(task: str, registry: ToolRegistry,
                 break
             add(name)
 
-    return selected[:max_tools]
+    # ⚠ KESME KURALI: çekirdek araçlar **asla** düşmez.
+    # Ölçüldü: düz `selected[:max_tools]` kırpması çekirdeğin sonundaki
+    # `asset.animasyon` / `asset.onizleme` gibi araçları atıyordu.
+    cekirdek = [n for n in CORE_TOOLS if registry.has(n)]
+    ozel = [n for n in selected if n not in cekirdek]
+    butce = max(int(max_tools), len(cekirdek))
+    yer = max(0, butce - len(cekirdek))
+    # Göreve özel araçlar önce gelir (kesilme riski yok), çekirdek sonra
+    return (ozel[:yer] + cekirdek)[:butce]
 
 
 
@@ -1450,6 +1467,8 @@ class AgentLoop:
                 run.reason = f"süre sınırı ({max_seconds:.0f}s)"
                 break
 
+            # ⚠ Yetim `tool` mesajları sağlayıcıda 400 üretir — her turda onar
+            self._mesajlari_onar(messages)
             response = self._router.chat(messages, tools=schemas,
                                          max_tokens=budget["max_tokens"])
             run.prompt_tokens += response.prompt_tokens
@@ -2177,14 +2196,27 @@ class AgentLoop:
         ozet = self._hedef.ozet() if self._hedef is not None else ""
         if not ozet:
             return
-        korunan = messages[:1] + messages[-SIKISTIRMA_TUT:]
+        # ⚠ ÖLÇÜLDÜ: kuyruk bir `tool` mesajının ortasından başlarsa
+        # sağlayıcı **HTTP 400** veriyor ("Messages with role 'tool' must be
+        # a response to a preceding message with 'tool_calls'"). Bu yüzden
+        # kuyruk, araç döngüsünün **başına** hizalanır.
+        kuyruk = list(messages[-SIKISTIRMA_TUT:])
+        while kuyruk and getattr(kuyruk[0], "role", "") == "tool":
+            kuyruk.pop(0)
+        while (kuyruk and getattr(kuyruk[0], "role", "") == "assistant"
+               and getattr(kuyruk[0], "tool_calls", None)):
+            # yanıtları düşmüş asistan turu da tek başına geçersizdir
+            kuyruk.pop(0)
         yeni = list(messages[:1])
         yeni.append(LLMMessage(
             "user",
             "ÖZET (eski mesajlar sıkıştırıldı):\n" + ozet))
-        yeni.extend(messages[-SIKISTIRMA_TUT:])
+        yeni.extend(kuyruk)
         onceki = len(messages)
         messages[:] = yeni
+        # ⚠ Kuyruğun SONUNDA kalan yetim `tool` mesajları da atılmalı:
+        # asistan turu düştüyse sağlayıcı yine 400 verir.
+        self._mesajlari_onar(messages)
         self._counter["context_compressed"] += 1
         logger.debug(f"Bağlam sıkıştırıldı: {onceki} → {len(messages)} mesaj")
 
@@ -2209,6 +2241,37 @@ class AgentLoop:
                 store.kullanim_artir(self._kullanilan_playbook)
             except Exception:
                 pass
+
+    @staticmethod
+    def _mesajlari_onar(messages: List[LLMMessage]) -> None:
+        """
+        ⚠ Yetim `tool` mesajlarını atar (sağlayıcı 400'ünü önler).
+
+        Kural: bir `tool` mesajı, **kendisinden önceki** assistant turundaki
+        `tool_calls` kimliklerinden biriyle eşleşmelidir. Sıkıştırma/kesme
+        sonrası eşleşmeyen mesajlar sağlayıcı tarafından reddedilir.
+        """
+        bekleyen: set = set()
+        temiz: List[LLMMessage] = []
+        atilan = 0
+        for m in messages:
+            rol = getattr(m, "role", "")
+            if rol == "assistant":
+                cagrilar = getattr(m, "tool_calls", None) or []
+                bekleyen = {str(c.get("id") or "") for c in cagrilar
+                            if isinstance(c, dict)}
+            elif rol == "tool":
+                kimlik = str(getattr(m, "tool_call_id", "") or "")
+                if kimlik and kimlik in bekleyen:
+                    bekleyen.discard(kimlik)
+                    temiz.append(m)
+                else:
+                    atilan += 1
+                continue
+            temiz.append(m)
+        if atilan:
+            logger.debug(f"Yetim tool mesajı atıldı: {atilan}")
+        messages[:] = temiz
 
     def _kanit_metni(self, run: AgentRun, sinir: int = 2500) -> str:
         """Araç çıktılarından **kanıt** metni üretir (doğrulama için)."""
