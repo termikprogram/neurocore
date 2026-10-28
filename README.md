@@ -11,6 +11,9 @@
 > ```
 > Ayrıntılar: [Kurulum](docs/KURULUM.md) · [Kullanım](docs/KULLANIM.md) ·
 > [Ortak havuz](docs/ORTAK-HAVUZ.md) · [Güvenlik](SECURITY.md)
+>
+> 📘 **Kitapçık** — mimari + algoritmalar + ölçümler:
+> [PDF](docs/NeuroCore-Kitapcik.pdf) · [DOCX](docs/NeuroCore-Kitapcik.docx)
 
 **Donanım-farkında, çok-modlu, kendi kendini büyütebilen yapay zeka sistemi.**
 Aynı zamanda **kod yazabilen, komut çalıştırabilen ve uygulamaları (Godot,
