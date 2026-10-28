@@ -83,6 +83,9 @@
     [/^(\d+) mesaj$/, (m) => `${m[1]} messages`],
     [/^genel sohbet \(klasör yok\)$/, () => "general chat (no folder)"],
     [/^(\d+) mesaj · (.+)$/, (m) => `${m[1]} messages · ${m[2]}`],
+    // ⚠ Alt bardaki havuz sayacı JS tarafından üretiliyor (dinamik metin)
+    [/^(\d+) makine$/, (m) => `${m[1]} ${m[1] === "1" ? "machine" : "machines"}`],
+    [/^havuz —$/, () => "pool —"],
   ];
 
   // ⚠ ÖLÇÜLDÜ: kaynak metinler sözlüktekiyle **birebir** aynı değil —

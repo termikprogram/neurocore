@@ -356,6 +356,8 @@ class PeerPool:
         self._ayar_uyarisi = False
         #: Son bilinen genel IP (ek ssh çağrısı yapmamak için önbellek)
         self._son_ip = ""
+        # ⚠ Sunucunun gördüğü **düğüm sayısı** (kayıt yanıtından)
+        self._son_dugum_sayisi = 0
 
     # ─── Yaşam Döngüsü ──────────────────────────────────────────────────
 
@@ -592,6 +594,10 @@ class PeerPool:
             "aralik": self._aralik,
             "son_kayit_yas": round(max(0.0, time.time() - self._son_kayit), 1),
             "ip": self._son_ip,
+            # ⚠ Havuzda kaç makine var? (sunucunun saydığı)
+            "dugum_sayisi": self._son_dugum_sayisi,
+            "canli": (self._son_kayit > 0
+                      and (time.time() - self._son_kayit) < max(30.0, self._ttl)),
         }
 
     # ─── Kimlik ─────────────────────────────────────────────────────────
@@ -792,6 +798,7 @@ print(json.dumps(satirlar, ensure_ascii=False))
         ip = str(benim.get("ip") or "")
         if ip:
             self._son_ip = ip
+        self._son_dugum_sayisi = len(satirlar)
         logger.info(f"Havuza kaydedildi: {ip or '?'} · düğüm {len(satirlar)}")
         return {"ok": True, "node_id": self._kimlik, "ip": ip,
                 "komsu": len(satirlar)}

@@ -1894,6 +1894,22 @@ const State = {
     const tokens = (data.llm.stats?.prompt_tokens || 0) + (data.llm.stats?.completion_tokens || 0);
     $('usage-tokens').textContent = `${tokens.toLocaleString('tr-TR')} token`;
 
+    // ⚠ Ortak havuz: kaç makine bağlı? (SSH'sız; kalp atışından önbellek)
+    const elHavuz = $('usage-pool');
+    if (elHavuz) {
+      const havuz = data.pool || {};
+      const sayi = havuz.dugum_sayisi || 0;
+      if (!sayi) {
+        elHavuz.textContent = 'havuz —';
+        elHavuz.title = 'Havuz kaydı henüz yok';
+      } else {
+        elHavuz.textContent = `${sayi} makine`;
+        elHavuz.title = havuz.canli
+          ? `Havuzda ${sayi} makine · bu düğüm canlı (${havuz.ip || '?'})`
+          : `Son kayıt eski — bağlantı koptu olabilir`;
+      }
+    }
+
     if (!data.llm.available) {
       $('welcome-note').innerHTML =
         '⚠ Dil modeli yapılandırılmadı — kural tabanlı modda çalışıyorum. '

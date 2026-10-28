@@ -357,6 +357,21 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
 
     # ─── Durum ──────────────────────────────────────────────────────────
 
+    @app.get("/api/pool")
+    async def get_pool(request: Request) -> Any:
+        """
+        Ortak havuz durumu: kaç makine bağlı, bu düğüm canlı mı?
+
+        ⚠ SSH çağrısı **yapılmaz**: sayı, kayıt yanıtından önbelleklenir
+        (her 30 sn kalp atışında güncellenir). Tam liste için
+        `python tools/ag_havuzu.py --liste`.
+        """
+        _check_origin(request)
+        if getattr(state, "peer_pool", None) is None:
+            return _json({"ok": False, "error": "ortak havuz başlatılmamış"})
+        bilgi = state.peer_pool.get_stats()
+        return _json({"ok": True, **bilgi})
+
     @app.get("/api/learning")
     async def get_learning(request: Request) -> Any:
         """
@@ -484,6 +499,14 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
             "events": state.events.status(),
             "modules": _module_status(),
             "last_run": state.last_run,
+            # ⚠ Havuz özeti: kaç makine bağlı (SSH'sız, önbellekten)
+            "pool": ({"dugum_sayisi": getattr(state.peer_pool, "_son_dugum_sayisi", 0),
+                      "canli": bool(getattr(state.peer_pool, "_son_kayit", 0)
+                                    and (__import__("time").time()
+                                         - state.peer_pool._son_kayit) < 90),
+                      "ip": getattr(state.peer_pool, "_son_ip", ""),
+                      "node_id": getattr(state.peer_pool, "_kimlik", "")[:8]}
+                     if getattr(state, "peer_pool", None) is not None else {}),
         })
 
     def _module_status() -> Dict[str, Any]:
