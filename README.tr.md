@@ -1,6 +1,6 @@
 # NeuroCore AI
 
-**🇬🇧 English: [README.md](README.md)** · 🇹🇷 Türkçe (bu sayfa)
+**🇬🇧 English: [README.md](README.md) · [docs/en](docs/en/README.md)** · 🇹🇷 Türkçe (bu sayfa)
 
 **Sürüm 0.1.0** · Windows · Python 3.10+ · PyTorch (CUDA) · [Sürüm geçmişi](CHANGELOG.md)
 
@@ -153,6 +153,12 @@ with NeuroCoreEngine() as engine:          # donanımı algılar, katmanları ku
 ```
 
 ---
+
+## Örnek çıktı (dönen render)
+
+![Ağaçlar dönüyor](docs/images/trees-rotate.gif)
+
+![Palmiye dönüyor](docs/images/palm-rotate.gif)
 
 ## Kaynak Nezaketi — Bilgisayarınızı Kilitlemez
 

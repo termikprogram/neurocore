@@ -332,13 +332,18 @@ interface when the browser language is not Turkish (`?lang=en` forces it,
 
 ## 11. Output examples
 
-**Blender — three low-poly trees, four angles** (agent job, 302 s, 37 tool calls):
+**Rotating render of the scene the agent built** (Blender job, 37 tool calls,
+302 s — three trees, four angles each):
 
-![Low-poly trees](docs/images/example-trees.png)
+![Low-poly trees rotating](docs/images/trees-rotate.gif)
 
-**Palm, rebuilt from the new fan recipe** (single-blade fronds, no joint gap):
+**Palm rebuilt from the fan recipe** (single-blade fronds, no joint gap):
 
-![Palm](docs/images/example-palm.png)
+![Palm rotating](docs/images/palm-rotate.gif)
+
+The still frames are in `docs/images/example-trees.png` and
+`docs/images/example-palm.png`; the animations above are generated from the
+same `.blend` files with `tools/donus_animasyon.py`.
 
 ## 12. Known limits
 
@@ -355,4 +360,4 @@ interface when the browser language is not Turkish (`?lang=en` forces it,
 
 ## License
 
-Proprietary — see [LICENSE](LICENSE). Turkish documentation: [README.md](README.md).
+Proprietary — see [LICENSE](LICENSE). Turkish documentation: [README.tr.md](README.tr.md) · English docs folder: [docs/en](docs/en/README.md).
