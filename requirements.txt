@@ -1,0 +1,52 @@
+# NeuroCore AI — Bağımlılıklar
+# ================================
+
+# Derin öğrenme
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+
+# Bilimsel hesaplama
+numpy>=1.24.0
+scikit-learn>=1.3.0
+scipy>=1.11.0
+
+# Sistem izleme
+psutil>=5.9.0
+GPUtil>=1.4.0
+pynvml>=11.5.0
+
+# Bilgi yönetimi ve graf
+networkx>=3.0
+pyyaml>=6.0
+
+# Dosya sistemi
+aiofiles>=23.0
+watchdog>=3.0.0
+filelock>=3.12.0
+
+# Çok-modlu işleme
+Pillow>=10.0.0
+soundfile>=0.12.0
+
+# Serileştirme ve sıkıştırma
+msgpack>=1.0
+lz4>=4.3.0
+
+# CLI ve görselleştirme
+rich>=13.0
+tqdm>=4.65.0
+
+# HTTP istemci (API bridge)
+aiohttp>=3.9.0
+requests>=2.31.0
+
+# Tokenizasyon
+tiktoken>=0.5.0
+
+# ─── Ajan ve masaüstü uygulaması katmanı ────────────────────────────────
+fastapi>=0.110          # masaüstü uygulaması HTTP sunucusu
+uvicorn>=0.27          # ASGI sunucusu
+websockets>=12           # canlı olay akışı (WebSocket)
+pywinauto>=0.6.8        # arayüz metni okuma (UI Automation)
+comtypes>=1.2           # pywinauto bağımlılığı

@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NeuroCore</title>
+<!-- Satır içi SVG simge: favicon 404 hatasını önler -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%230e1014'/%3E%3Ctext x='16' y='23' font-size='20' text-anchor='middle' fill='%234c8dff'%3E%E2%97%86%3C/text%3E%3C/svg%3E">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+<!-- ─── Üst Çubuk ─────────────────────────────────────────────────────── -->
+<header class="topbar">
+  <div class="brand">
+    <span class="brand-mark">◆</span>
+    <span class="brand-name">NeuroCore</span>
+    <span class="brand-sub" id="workspace-name" title="">—</span>
+  </div>
+
+  <div class="topbar-center">
+    <span class="pill" id="agent-mode" title="Ajan çalışma modu">—</span>
+    <span class="pill" id="steps-pill" hidden title="Adım sayacı">adım 0 / 24</span>
+
+    <!-- Model seçici: tıklanınca sağlayıcı + model listesi açılır.
+         Sağlayıcı kotası dolduğunda tek tıkla geçiş yapılabilsin diye
+         Ayarlar'a girmek gerekmez. -->
+    <div class="model-switch" id="model-switch">
+      <button class="pill pill-button" id="model-pill"
+              title="Dil modelini değiştir" aria-haspopup="listbox"
+              aria-expanded="false">
+        <span id="model-pill-text">model yok</span>
+        <span class="pill-caret">▾</span>
+      </button>
+      <div class="model-menu" id="model-menu" hidden>
+        <div class="model-menu-head">
+          <span>Dil modeli</span>
+          <button class="model-menu-refresh" id="model-menu-refresh"
+                  title="Listeyi yenile">↻</button>
+        </div>
+        <div class="model-menu-body" id="model-menu-body"></div>
+        <div class="model-menu-foot" id="model-menu-foot"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="topbar-right">
+    <div class="autonomy" id="autonomy-wrap">
+      <label for="autonomy-select">Özerklik</label>
+      <select id="autonomy-select" title="Ajanın ne kadarını kendi başına yapabileceği">
+        <option value="readonly">Salt okunur</option>
+        <option value="supervised" selected>Denetimli</option>
+        <option value="trusted">Güvenilir</option>
+        <option value="yolo">Serbest</option>
+      </select>
+    </div>
+    <button class="icon-btn" id="btn-tools" title="Araçlar">⚙</button>
+    <button class="icon-btn" id="btn-vision" title="Ekran / görsel doğrulama">👁</button>
+    <button class="icon-btn" id="btn-settings" title="Ayarlar">⚙︎</button>
+  </div>
+</header>
+
+<div class="autonomy-hint" id="autonomy-hint"></div>
+
+<!-- ─── Ana Alan ──────────────────────────────────────────────────────── -->
+<main class="layout">
+
+  <!-- En sol: Sohbetler (her sohbetin kendi çalışma alanı) -->
+  <aside class="chats-pane" id="chats-pane">
+    <div class="chats-head">
+      <span class="chats-title">Sohbetler</span>
+      <button class="chats-new" id="chats-new" title="Yeni sohbet (klasörsüz — genel mod)">+</button>
+    </div>
+
+    <!-- Etkin sohbetin çalışma alanı: buradan klasör bağlanır/kaldırılır -->
+    <div class="chats-ws" id="chats-ws">
+      <div class="chats-ws-row">
+        <span class="chats-ws-icon" id="chats-ws-icon">📁</span>
+        <span class="chats-ws-name" id="chats-ws-name" title="">genel sohbet</span>
+      </div>
+      <div class="chats-ws-actions">
+        <button class="chats-ws-btn" id="chats-ws-pick"
+                title="Bu sohbete çalışma klasörü bağla">Klasör seç</button>
+        <button class="chats-ws-btn" id="chats-ws-clear"
+                title="Klasör bağlantısını kaldır — genel sohbet modu">Kaldır</button>
+      </div>
+    </div>
+
+    <div class="chats-list" id="chats-list"></div>
+  </aside>
+
+  <!-- Sol: Sohbet -->
+  <section class="chat-pane">
+    <div class="transcript" id="transcript">
+      <div class="welcome" id="welcome">
+        <h1>NeuroCore</h1>
+        <p class="welcome-sub">
+          Kod yazabilen, komut çalıştırabilen ve uygulamaları (Godot, Blender)
+          kontrol edebilen yerel yazılım ajanı.
+        </p>
+        <div class="examples" id="examples">
+          <button class="example" data-prompt="proje haritasını çıkar">Proje haritasını çıkar</button>
+          <button class="example" data-prompt="testleri çalıştır ve başarısız olanları düzelt">Testleri çalıştır ve düzelt</button>
+          <button class="example" data-prompt="kurulu araçların sürümleri neler">Araç zinciri sürümleri</button>
+          <button class="example" data-prompt="bu projede neler eksik, ne geliştirilebilir">Proje değerlendirmesi</button>
+        </div>
+        <div class="welcome-note" id="welcome-note"></div>
+      </div>
+    </div>
+
+    <div class="composer">
+      <textarea id="input" rows="1" placeholder="Bir görev yazın… (Enter: gönder · Shift+Enter: yeni satır)"></textarea>
+      <div class="composer-actions">
+        <label class="chk" title="Önce plan ürettir, sonra uygula">
+          <input type="checkbox" id="plan-first"> plan
+        </label>
+        <button class="send-btn" id="btn-send" title="Gönder">Gönder</button>
+        <button class="stop-btn" id="btn-stop" title="Çalışan görevi iptal et" hidden>Durdur</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Sağ: Çalışma akışı -->
+  <aside class="side-pane" id="side-pane">
+    <div class="side-tabs">
+      <button class="side-tab active" data-tab="steps">Akış</button>
+      <button class="side-tab" data-tab="files">Dosyalar</button>
+      <button class="side-tab" data-tab="audit">Denetim</button>
+    </div>
+
+    <div class="side-body">
+      <!-- Çalışan komutlar: hangi komutun çalıştığını gösterir ve
+           kullanıcı tek tek durdurabilir. -->
+      <div class="running-panel" id="running-panel" hidden>
+        <div class="running-head">
+          <span class="running-title">⚙ Çalışıyor</span>
+          <span class="running-count" id="running-count"></span>
+          <button class="running-kill-all" id="running-kill-all"
+                  title="Çalışan tüm komutları durdur">Tümünü durdur</button>
+        </div>
+        <div id="running-list"></div>
+      </div>
+
+      <div class="side-view active" id="view-steps">
+        <div class="empty-hint">Henüz bir işlem yok.</div>
+      </div>
+      <div class="side-view" id="view-files">
+        <!-- Çalışma alanı dosya ağacı: oturumun çalışma alanına köklenir,
+             seviye seviye okunur (DSH `workspaceFiles.list` modeli). -->
+        <div class="tree-head">
+          <span class="tree-root" id="tree-root" title=""></span>
+          <button class="tree-reload" id="tree-reload" title="Yenile">↻</button>
+        </div>
+        <div id="tree-body"><div class="empty-hint">Yükleniyor…</div></div>
+      </div>
+        <div class="empty-hint">Bu görevde değişen dosya yok.</div>
+      </div>
+      <div class="side-view" id="view-audit">
+        <div class="empty-hint">Araç çağrısı kaydı boş.</div>
+      </div>
+    </div>
+
+    <!-- Dosya önizleme: ağaçtan bir dosyaya tıklandığında açılır -->
+    <div class="file-preview" id="file-preview" hidden>
+      <div class="file-preview-head">
+        <span class="file-preview-name" id="file-preview-name"></span>
+        <button class="tree-reload" id="file-preview-close" title="Kapat">✕</button>
+      </div>
+      <div class="file-preview-body" id="file-preview-body"></div>
+    </div>
+
+    <div class="side-footer">
+      <div class="usage" id="usage">
+        <span id="usage-tools">0 araç</span>
+        <span id="usage-calls">0 çağrı</span>
+        <span id="usage-tokens">0 token</span>
+      </div>
+    </div>
+  </aside>
+</main>
+
+<!-- ─── Onay Katmanı ──────────────────────────────────────────────────── -->
+<div class="modal-backdrop" id="approval-backdrop" hidden>
+  <div class="modal approval-modal">
+    <div class="modal-icon">⚿</div>
+    <h2>Onay gerekiyor</h2>
+    <p class="approval-summary" id="approval-summary">—</p>
+    <div class="approval-meta">
+      <span class="badge" id="approval-safety">—</span>
+      <span class="approval-tool" id="approval-tool">—</span>
+    </div>
+    <p class="approval-reason" id="approval-reason"></p>
+    <details class="approval-details">
+      <summary>Argümanları gör</summary>
+      <pre id="approval-args">{}</pre>
+    </details>
+    <div class="approval-actions">
+      <button class="btn btn-danger" id="approval-deny">Reddet</button>
+      <button class="btn btn-ghost" id="approval-allow-once">Bir kez izin ver</button>
+      <button class="btn btn-primary" id="approval-allow-remember">Her zaman izin ver</button>
+    </div>
+    <div class="approval-queue" id="approval-queue"></div>
+  </div>
+</div>
+
+<!-- ─── Araçlar Paneli ───────────────────────────────────────────────── -->
+<div class="drawer-backdrop" id="tools-backdrop" hidden>
+  <div class="drawer" id="tools-drawer">
+    <div class="drawer-head">
+      <h2>Araçlar</h2>
+      <button class="icon-btn" data-close="tools-backdrop">✕</button>
+    </div>
+    <div class="drawer-tools">
+      <input type="search" id="tools-search" placeholder="Araç ara…">
+      <div class="chips" id="tools-categories"></div>
+    </div>
+    <div class="drawer-body" id="tools-list"></div>
+  </div>
+</div>
+
+<!-- ─── Ayarlar Paneli ───────────────────────────────────────────────── -->
+<div class="drawer-backdrop" id="settings-backdrop" hidden>
+  <div class="drawer" id="settings-drawer">
+    <div class="drawer-head">
+      <h2>Ayarlar</h2>
+      <button class="icon-btn" data-close="settings-backdrop">✕</button>
+    </div>
+    <div class="drawer-body">
+      <section class="settings-block">
+        <h3>Dil Modeli</h3>
+        <p class="settings-note" id="llm-note"></p>
+        <div id="llm-status"></div>
+        <div class="field-row">
+          <label for="llm-provider">Sağlayıcı</label>
+          <select id="llm-provider"></select>
+        </div>
+        <div class="field-row">
+          <label for="llm-model">Model</label>
+          <select id="llm-model"></select>
+        </div>
+        <div class="field-row">
+          <label for="llm-model-custom">Özel model</label>
+          <input type="text" id="llm-model-custom" autocomplete="off"
+                 placeholder="listede yoksa adı buraya yazın (isteğe bağlı)">
+        </div>
+        <div class="field-row">
+          <label for="llm-key">API anahtarı</label>
+          <input type="password" id="llm-key" placeholder="sk-…" autocomplete="off">
+        </div>
+        <p class="settings-help" id="llm-help"></p>
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="llm-save">Kaydet</button>
+          <button class="btn btn-ghost" id="llm-test">Bağlantıyı test et</button>
+          <button class="btn btn-ghost" id="llm-clear">Anahtarı sil</button>
+        </div>
+        <pre class="test-result" id="llm-test-result" hidden></pre>
+      </section>
+
+      <section class="settings-block">
+        <h3>Çalışma Alanı</h3>
+        <div class="field-row">
+          <label for="ws-path">Dizin</label>
+          <input type="text" id="ws-path">
+        </div>
+        <div class="settings-actions">
+          <button class="btn btn-ghost" id="ws-up">↑ Üst dizin</button>
+          <button class="btn btn-primary" id="ws-apply">Bu dizini kullan</button>
+        </div>
+        <div class="browser" id="ws-browser"></div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Öğrenme</h3>
+        <div id="learn-status"></div>
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="learn-train">Şimdi eğit</button>
+          <button class="btn btn-ghost" id="learn-refresh">Yenile</button>
+        </div>
+        <p class="settings-help" id="learn-help"></p>
+        <div id="learn-recent"></div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Kendi Kendine Geliştirme</h3>
+        <div id="study-status"></div>
+        <div class="field-row">
+          <label for="study-topics">Öğrenilecek konular</label>
+          <textarea id="study-topics" rows="3"
+                    placeholder="Her satıra bir konu yazın (boş = otomatik: hatalardan ve kasadan)"></textarea>
+        </div>
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="study-run">Şimdi öğren</button>
+          <button class="btn btn-ghost" id="study-save">Konuları kaydet</button>
+          <button class="btn btn-ghost" id="study-refresh">Yenile</button>
+        </div>
+        <p class="settings-help" id="study-help"></p>
+        <div id="study-recent"></div>
+      </section>
+
+      <section class="settings-block">
+        <h3>Sistem Durumu</h3>
+        <div id="health-list"></div>
+      </section>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Görsel Doğrulama Paneli ──────────────────────────────────────── -->
+<div class="drawer-backdrop" id="vision-backdrop" hidden>
+  <div class="drawer" id="vision-drawer">
+    <div class="drawer-head">
+      <h2>Görsel Doğrulama</h2>
+      <button class="icon-btn" data-close="vision-backdrop">✕</button>
+    </div>
+    <div class="drawer-body">
+      <div class="settings-actions">
+        <button class="btn btn-primary" id="vs-capture">Ekran görüntüsü al</button>
+        <button class="btn btn-ghost" id="vs-windows">Pencereleri listele</button>
+      </div>
+      <div id="vs-result"></div>
+      <img id="vs-image" class="shot" hidden alt="Ekran görüntüsü">
+    </div>
+  </div>
+</div>
+
+<!-- ─── Klasör Seçici (sohbet çalışma alanı) ─────────────────────────── -->
+<div class="modal-backdrop" id="folder-backdrop" hidden>
+  <div class="modal folder-modal">
+    <div class="modal-head">
+      <span id="folder-title">Çalışma klasörü seç</span>
+      <button class="modal-close" id="folder-close" title="Kapat">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="folder-path-row">
+        <button class="btn btn-ghost" id="folder-up" title="Üst dizin">↑</button>
+        <input type="text" id="folder-path" spellcheck="false"
+               placeholder="Yol yazıp Enter'a basın">
+      </div>
+      <div class="folder-list" id="folder-list"></div>
+      <div class="folder-new-row">
+        <button class="btn btn-ghost" id="folder-new"
+                title="Seçili klasörün altında yeni klasör oluştur">+ Yeni klasör</button>
+        <input type="text" id="folder-new-name" hidden
+               placeholder="klasör adı" autocomplete="off">
+        <button class="btn btn-primary" id="folder-new-ok" hidden>Oluştur</button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="folder-cancel">Vazgeç</button>
+        <button class="btn btn-primary" id="folder-choose">Bu klasörü seç</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ─── Metin Girdisi (yeniden adlandırma) ───────────────────────────── -->
+<div class="modal-backdrop" id="prompt-backdrop" hidden>
+  <div class="modal prompt-modal">
+    <div class="modal-head">
+      <span id="prompt-title">Yeniden adlandır</span>
+      <button class="modal-close" id="prompt-close" title="Kapat">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="text" id="prompt-input" autocomplete="off">
+      <div class="modal-actions">
+        <button class="btn btn-ghost" id="prompt-cancel">Vazgeç</button>
+        <button class="btn btn-primary" id="prompt-ok">Tamam</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast-stack" id="toasts"></div>
+<script src="/app.js"></script>
+</body>
+</html>

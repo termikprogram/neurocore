@@ -1,0 +1,74 @@
+# ─── Model ve veri (çok büyük — depoya girmez) ─────────────────────
+models/
+data/
+*.pt
+*.ckpt
+*.safetensors
+
+# ─── Çalışma zamanı verisi ─────────────────────────────────────────
+.neurocore/
+knowledge_base/index/
+!knowledge_base/README.md
+
+# ─── Sanal ortam / Python ──────────────────────────────────────────
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# ─── Sırlar (ASLA) ─────────────────────────────────────────────────
+.env
+.env.*
+*.key
+*.pem
+*.ppk
+id_rsa*
+id_ed25519*
+peer.json
+peer_token
+cluster.token
+
+# ─── Günlük ve geçici çıktılar ─────────────────────────────────────
+*.log
+logs/
+_*.json
+_h*.json
+_*.log
+
+# ─── Üretim çıktıları (isteğe bağlı) ───────────────────────────────
+Varliklar/
+TestProjects/
+BlenderTest/
+*.blend1
+*.blend2
+
+# ─── Editör / işletim sistemi ──────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── İç çalışma raporları (YAYINLANMAZ) ────────────────────────────
+# Gerekçe: sunucu adresi, anahtar yolu ve makine adları içerir.
+# Yayınlanacaksa önce `raporlar/` içindeki sırlar temizlenmeli.
+raporlar/
+
+# ─── Kasa: kullanıcı verisi (depoya girmez) ────────────────────────
+# 7.160 not + 14 MB SQLite indeks. Yerel bilgi deposudur.
+knowledge_base/
+!knowledge_base/README.md
+
+# ─── Test/üretim artefaktları ──────────────────────────────────────
+*.blend
+*.blend1
+*.blend2
+*.fbx
+*.glb
+*.gltf
+_index/
+_*.py

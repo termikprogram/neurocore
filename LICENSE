@@ -1,0 +1,40 @@
+NeuroCore — Lisans
+==================
+
+Telif hakkı (c) 2026 termikprogram. Tüm hakları saklıdır.
+Copyright (c) 2026 termikprogram. All rights reserved.
+
+Bu yazılım ve beraberindeki dosyalar (kaynak kod, belgeler, betikler,
+veri şemaları) depo sahibine aittir.
+
+TÜRKÇE
+------
+1. Bu yazılımı görüntüleyebilir, kendi kullanımınız için çalıştırabilir
+   ve -izin verilen ölçüde- değiştirebilirsiniz.
+2. **Yeniden dağıtım**, **ticari kullanım**, **hizmet olarak sunma (SaaS)**
+   ve **türev çalışma yayımlama** için depo sahibinden **yazılı izin**
+   gerekir.
+3. Telif hakkı bildirimi kaldırılamaz.
+4. Yazılım "OLDUĞU GİBİ" sunulur; açık veya zımni **hiçbir garanti**
+   verilmez. Kullanımdan doğan doğrudan veya dolaylı zararlardan depo
+   sahibi sorumlu tutulamaz.
+
+ENGLISH
+-------
+1. You may view, run for your own use, and modify this software as
+   permitted by applicable law.
+2. **Redistribution**, **commercial use**, **offering as a service**, and
+   **publishing derivative works** require **written permission** from the
+   copyright holder.
+3. This notice must be retained.
+4. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS
+   OR IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE LIABLE FOR ANY
+   CLAIM, DAMAGES OR OTHER LIABILITY ARISING FROM THE USE OF THE SOFTWARE.
+
+---
+
+Üçüncü taraf bileşenler kendi lisanslarına tabidir (PyTorch, FastAPI,
+NumPy ve `requirements.txt` içindeki diğerleri).
+
+Farklı bir lisans (ör. MIT veya Apache-2.0) istenirse depo sahibi bu
+dosyayı değiştirebilir.

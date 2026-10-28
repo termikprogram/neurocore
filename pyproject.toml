@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "neurocore"
+version = "0.1.0"
+description = "Donanım-farkında, çok-modlu, kendi kendine öğrenen ve makineler arası iş paylaşan yerel yapay zekâ ajanı"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Tüm hakları saklıdır (bkz. LICENSE)" }
+authors = [{ name = "termikprogram" }]
+keywords = [
+    "ai", "agent", "local-llm", "moe", "turbo", "screen-capture",
+    "obsidian", "blender", "godot", "distributed",
+]
+classifiers = [
+    "Programming Language :: Python :: 3.10",
+    "Operating System :: Microsoft :: Windows",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+
+# ⚠ Tek doğru kaynak `requirements.txt`'tir; buradaki liste yalnız
+#    `pip install neurocore` için asgari çekirdeği tanımlar.
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.15.0",
+    "numpy>=1.24.0",
+    "scipy>=1.11.0",
+    "scikit-learn>=1.3.0",
+    "psutil>=5.9.0",
+    "pynvml>=11.5.0",
+    "networkx>=3.0",
+    "pyyaml>=6.0",
+    "aiofiles>=23.0",
+    "watchdog>=3.0.0",
+    "filelock>=3.12.0",
+    "Pillow>=10.0.0",
+    "msgpack>=1.0",
+    "lz4>=4.3.0",
+    "rich>=13.0",
+    "tqdm>=4.65.0",
+    "aiohttp>=3.9.0",
+    "requests>=2.31.0",
+    "tiktoken>=0.5.0",
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "websockets>=12",
+]
+
+[project.optional-dependencies]
+desktop = ["pywinauto>=0.6.8", "comtypes>=1.2"]
+dev = ["pytest>=7.0"]
+
+[project.scripts]
+neurocore = "neurocore.app.launcher:main"
+
+[project.urls]
+Homepage = "https://github.com/termikprogram/neurocore"
+Changelog = "https://github.com/termikprogram/neurocore/blob/main/CHANGELOG.md"
+
+[tool.setuptools]
+packages = ["neurocore"]
+
+[tool.setuptools.package-data]
+neurocore = ["app/web/**/*"]
