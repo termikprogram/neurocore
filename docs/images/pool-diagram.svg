@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="760" viewBox="0 0 1280 760">
+  <defs>
+    <style>
+      .bg { fill: #0f1115; }
+      .card { fill: #171a21; stroke: #2a2f3a; stroke-width: 2; rx: 14; }
+      .card-accent { fill: #16202c; stroke: #2f6feb; stroke-width: 2; rx: 14; }
+      .t { font-family: 'Segoe UI', system-ui, sans-serif; fill: #e6e8ee; }
+      .h { font-size: 26px; font-weight: 700; }
+      .sub { font-size: 16px; fill: #9aa4b2; }
+      .lbl { font-size: 15px; fill: #c9d1d9; }
+      .mono { font-family: 'Cascadia Code', Consolas, monospace; font-size: 14px; fill: #8ab4f8; }
+      .tag { font-size: 13px; fill: #7ee787; }
+      .arrow { stroke: #58a6ff; stroke-width: 2.5; fill: none; marker-end: url(#ok); }
+      .arrow2 { stroke: #f0b429; stroke-width: 2.5; fill: none; marker-end: url(#ok2); }
+      .arrow3 { stroke: #7ee787; stroke-width: 2.5; fill: none; marker-end: url(#ok3); }
+      .dash { stroke-dasharray: 7 6; }
+    </style>
+    <marker id="ok" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#58a6ff"/>
+    </marker>
+    <marker id="ok2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#f0b429"/>
+    </marker>
+    <marker id="ok3" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+      <path d="M0,0 L0,6 L9,3 z" fill="#7ee787"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1280" height="760"/>
+  <text class="t h" x="40" y="52">NeuroCore shared pool — machines help each other</text>
+  <text class="t sub" x="40" y="80">Each instance registers over SSH, shares its library, and can take a job from another node.</text>
+
+  <!-- Node A -->
+  <rect class="card" x="40" y="120" width="330" height="150"/>
+  <text class="t lbl" x="62" y="154">🖥️  Desktop (this machine)</text>
+  <text class="mono" x="62" y="186">RTX 3060 Ti · 8 GB</text>
+  <text class="mono" x="62" y="212">free VRAM 6.1 GB</text>
+  <text class="tag" x="62" y="242">capacity 5.5 GB (90% rule)</text>
+
+  <!-- Node B -->
+  <rect class="card" x="40" y="300" width="330" height="150"/>
+  <text class="t lbl" x="62" y="334">💻  Laptop</text>
+  <text class="mono" x="62" y="366">GTX 1080 Ti · 11 GB</text>
+  <text class="mono" x="62" y="392">free VRAM 10.0 GB</text>
+  <text class="tag" x="62" y="422">capacity 9.0 GB (90% rule)</text>
+
+  <!-- Node C -->
+  <rect class="card" x="40" y="480" width="330" height="150"/>
+  <text class="t lbl" x="62" y="514">🧠  Spare node</text>
+  <text class="mono" x="62" y="546">CPU only / small GPU</text>
+  <text class="mono" x="62" y="572">takes light jobs</text>
+  <text class="tag" x="62" y="602">always answers</text>
+
+  <!-- Server -->
+  <rect class="card-accent" x="470" y="250" width="330" height="250"/>
+  <text class="t lbl" x="492" y="286">🔗  Rendezvous server (SSH)</text>
+  <text class="mono" x="492" y="320">register · heartbeat</text>
+  <text class="mono" x="492" y="346">peer list + IP</text>
+  <text class="mono" x="492" y="372">shared library</text>
+  <text class="mono" x="492" y="398">cluster token</text>
+  <text class="tag" x="492" y="430">no private key is ever shared</text>
+  <text class="tag" x="492" y="456">token is issued by the server</text>
+
+  <!-- Job -->
+  <rect class="card" x="890" y="120" width="350" height="170"/>
+  <text class="t lbl" x="912" y="154">📤  Job dispatch</text>
+  <text class="mono" x="912" y="186">POST /peer/job</text>
+  <text class="mono" x="912" y="212">token checked → 403 otherwise</text>
+  <text class="tag" x="912" y="244">only read-only tools allowed</text>
+  <text class="tag" x="912" y="266">16 tools on the allow-list</text>
+
+  <!-- Result -->
+  <rect class="card" x="890" y="330" width="350" height="170"/>
+  <text class="t lbl" x="912" y="364">📥  Result</text>
+  <text class="mono" x="912" y="396">answer + metrics + artifacts</text>
+  <text class="mono" x="912" y="422">library entry shared back</text>
+  <text class="tag" x="912" y="454">peer learned something too</text>
+
+  <!-- Takeover -->
+  <rect class="card" x="890" y="540" width="350" height="150"/>
+  <text class="t lbl" x="912" y="574">⏱️  No answer?</text>
+  <text class="mono" x="912" y="606">timeout expires → local node</text>
+  <text class="mono" x="912" y="632">takes the job over</text>
+  <text class="tag" x="912" y="662">work never gets lost</text>
+
+  <!-- Arrows: nodes -> server -->
+  <path class="arrow" d="M370 195 C 420 195, 430 300, 470 320"/>
+  <path class="arrow" d="M370 375 C 420 375, 435 375, 470 375"/>
+  <path class="arrow" d="M370 555 C 420 555, 430 450, 470 430"/>
+  <text class="t sub" x="386" y="182">1 · register</text>
+  <text class="t sub" x="386" y="362">1 · register</text>
+  <text class="t sub" x="386" y="542">1 · register</text>
+
+  <!-- server -> dispatch -->
+  <path class="arrow2" d="M800 320 C 845 320, 850 205, 890 205"/>
+  <text class="t sub" x="806" y="300">2 · dispatch</text>
+
+  <!-- dispatch -> result -->
+  <path class="arrow3" d="M1065 290 L1065 330"/>
+  <text class="t sub" x="1075" y="316">3 · run</text>
+
+  <!-- result -> server (library back) -->
+  <path class="arrow3 dash" d="M890 415 C 830 415, 820 400, 800 400"/>
+  <text class="t sub" x="806" y="440">4 · share</text>
+
+  <!-- server -> takeover hint -->
+  <path class="arrow2 dash" d="M800 450 C 860 470, 870 600, 890 615"/>
+  <text class="t sub" x="812" y="520">5 · timeout</text>
+
+  <text class="t sub" x="40" y="704">Every node keeps its own library and works alone if the pool is unreachable.</text>
+  <text class="t sub" x="40" y="730">No machine is required: a single instance is a pool of one.</text>
+</svg>
