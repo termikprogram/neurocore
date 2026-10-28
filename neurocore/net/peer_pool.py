@@ -87,6 +87,24 @@ VARSAYILAN_SUNUCU = ""
 AYAR_DOSYASI = "peer.json"
 
 
+#: ⚠ Windows'ta `pythonw.exe` ile çalışırken (ör. `Run.bat`) her alt süreç
+#: **yeni bir konsol penceresi** açar. Heartbeat her 30 sn'de `ssh.exe`
+#: çağırdığı için ekranda pencere kırpışır (kullanıcı bildirdi: "arada bir
+#: cmd ssh.exe çalışıp kapanıyor"). Çözüm: süreci gizli başlatmak.
+def _pencere_gizle() -> Dict[str, Any]:
+    """Alt süreç için konsol penceresini gizleyen parametreler."""
+    if os.name != "nt":
+        return {}
+    try:
+        si = subprocess.STARTUPINFO()
+        si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        si.wShowWindow = subprocess.SW_HIDE
+        return {"startupinfo": si,
+                "creationflags": subprocess.CREATE_NO_WINDOW}
+    except Exception:                          # pragma: no cover
+        return {}
+
+
 def kume_ayarlari(data_path: str = ".neurocore") -> Dict[str, str]:
     """
     Küme bağlantı ayarlarını okur (ortam → yerel dosya).
@@ -336,6 +354,8 @@ class PeerPool:
         self._token_denendi = False
         self._token_deneme_ts = 0.0
         self._ayar_uyarisi = False
+        #: Son bilinen genel IP (ek ssh çağrısı yapmamak için önbellek)
+        self._son_ip = ""
 
     # ─── Yaşam Döngüsü ──────────────────────────────────────────────────
 
@@ -571,6 +591,7 @@ class PeerPool:
             "tunel_port": self._tunel_port,
             "aralik": self._aralik,
             "son_kayit_yas": round(max(0.0, time.time() - self._son_kayit), 1),
+            "ip": self._son_ip,
         }
 
     # ─── Kimlik ─────────────────────────────────────────────────────────
@@ -639,6 +660,8 @@ class PeerPool:
                 temel + [uzak_komut], input=girdi, text=True,
                 capture_output=True, timeout=SSH_TIMEOUT,
                 encoding="utf-8", errors="replace",
+                # ⚠ Pencere kırpışmasını önler (pythonw altında zorunlu)
+                **_pencere_gizle(),
             )
         except subprocess.TimeoutExpired:
             self._counter["hata"] += 1
@@ -680,6 +703,10 @@ class PeerPool:
         yuk = json.dumps(kayit or {}, ensure_ascii=False)
         return f'''
 import json, os, time
+# ⚠ IP'yi sunucu **kendi** söyler: SSH oturumunun ortam değişkeni alt
+# sürece miras kalır → ayrı bir `ssh` çağrısına gerek kalmaz (çağrı 2→1).
+_CLIENT = os.environ.get("SSH_CLIENT", "")
+_IP = _CLIENT.split()[0] if _CLIENT else ""
 DEFTER = os.path.expanduser("{DEFTER}")
 TTL = {self._ttl}
 SIMDI = time.time()
@@ -704,6 +731,8 @@ if os.path.exists(DEFTER):
 islem = {islem!r}
 if islem == "kayit":
     yeni = json.loads({yuk!r})
+    if not yeni.get("ip"):
+        yeni["ip"] = _IP
     nid = yeni.get("node_id")
     satirlar = [d for d in satirlar if d.get("node_id") != nid]
     satirlar.append(yeni)
@@ -728,11 +757,13 @@ print(json.dumps(satirlar, ensure_ascii=False))
         """
         if not self._initialized:
             return {"ok": False, "hata": "havuz başlatılmadı"}
-        ip = self.genel_ip()
+        # ⚠ ÖLÇÜLDÜ: burada `genel_ip()` çağrısı **ikinci** bir ssh süreci
+        # açıyordu (heartbeat 30 sn'de 2 pencere). IP artık sunucu
+        # betiğinde `SSH_CLIENT`'ten doldurulur → tek çağrı.
         kayit = {
             "node_id": self._kimlik,
             "ad": ad or platform.node(),
-            "ip": ip,
+            "ip": "",
             "port": int(port),
             "relay_port": int(relay_port),
             "caps": [str(c) for c in caps],
@@ -745,7 +776,7 @@ print(json.dumps(satirlar, ensure_ascii=False))
             # sessizce yutulur (ölçüldü: testte hata sayacı 0 kaldı).
             self._counter["hata"] += 1
             self._son_hata = str(r.get("hata", "ssh"))[:200]
-            return {"ok": False, "hata": r.get("hata", "ssh"), "ip": ip}
+            return {"ok": False, "hata": r.get("hata", "ssh"), "ip": ""}
         self._counter["kayit"] += 1
         # ⚠ ÖLÇÜLDÜ: bu alan yazılmadığı için `son_kayit_yas` **epoch
         # kadar** (1,79 milyar sn) görünüyordu → heartbeat "çalışmıyor"
@@ -755,7 +786,13 @@ print(json.dumps(satirlar, ensure_ascii=False))
             satirlar = json.loads(r.get("cikti") or "[]")
         except json.JSONDecodeError:
             satirlar = []
-        logger.info(f"Havuza kaydedildi: {ip} · düğüm {len(satirlar)}")
+        # ⚠ IP sunucunun doldurduğu satırdan okunur (ek çağrı yok)
+        benim = next((d for d in satirlar
+                      if d.get("node_id") == self._kimlik), {})
+        ip = str(benim.get("ip") or "")
+        if ip:
+            self._son_ip = ip
+        logger.info(f"Havuza kaydedildi: {ip or '?'} · düğüm {len(satirlar)}")
         return {"ok": True, "node_id": self._kimlik, "ip": ip,
                 "komsu": len(satirlar)}
 
@@ -970,7 +1007,9 @@ print(json.dumps(satirlar, ensure_ascii=False))
             surec = subprocess.Popen(
                 temel + ["-N", "-R", hedef],
                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                text=True, encoding="utf-8", errors="replace")
+                text=True, encoding="utf-8", errors="replace",
+                # ⚠ Tünel süreci de pencere açmasın
+                **_pencere_gizle())
         except OSError as exc:
             return {"ok": False, "hata": f"{type(exc).__name__}: {exc}"}
         time.sleep(4.0)

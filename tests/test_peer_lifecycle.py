@@ -60,6 +60,8 @@ class _SahteHavuz(PeerPool):
         import tempfile
 
         self._tmp = tempfile.mkdtemp(prefix="nc-peer-test-")
+        # ⚠ Kaç ssh çağrısı yapıldığını sayar (pencere kırpışması testi)
+        self._ssh_cagrilari: List[str] = []
         self.defter: List[Dict[str, Any]] = []
         self.kayit_sayisi = 0
         self.silme_sayisi = 0
@@ -69,6 +71,7 @@ class _SahteHavuz(PeerPool):
 
     # ── SSH ──
     def _ssh(self, uzak_komut: str, girdi: str = "") -> Dict[str, Any]:
+        self._ssh_cagrilari.append((girdi or uzak_komut)[:40])
         if self.ssh_hatasi:
             return {"ok": False, "hata": "ssh koptu", "cikti": ""}
         # ⚠ Küme anahtarı artık sunucudan alınır (`~/neurocore/cluster.token`)
@@ -88,6 +91,8 @@ class _SahteHavuz(PeerPool):
                     import ast as _ast
 
                     yeni = json.loads(_ast.literal_eval(parca[:son]))
+                    if not yeni.get("ip"):
+                        yeni["ip"] = "95.70.193.163"
                     self.defter = [d for d in self.defter
                                    if d.get("node_id") != yeni.get("node_id")]
                     self.defter.append(yeni)
@@ -202,6 +207,59 @@ class TestDurdur(unittest.TestCase):
         h.shutdown()
         self.assertFalse(h._initialized)
         self.assertFalse(h._calisiyor)
+
+
+class TestPencereVeCagriSayisi(unittest.TestCase):
+    """
+    ⚠ Kullanıcı bildirimi: "arada bir cmd ssh.exe çalışıp kapanıyor".
+
+    İki koruma:
+      1. Alt süreçler **gizli** başlatılır (pythonw altında pencere açmaz)
+      2. Heartbeat'te **tek** ssh çağrısı yapılır (eskiden 2'ydi)
+    """
+
+    def test_pencere_gizleme_bayraklari(self) -> None:
+        import os
+        import subprocess
+
+        from neurocore.net.peer_pool import _pencere_gizle
+
+        p = _pencere_gizle()
+        if os.name == "nt":
+            self.assertIn("creationflags", p)
+            self.assertEqual(p["creationflags"], subprocess.CREATE_NO_WINDOW)
+            self.assertIn("startupinfo", p)
+            self.assertTrue(p["startupinfo"].dwFlags
+                            & subprocess.STARTF_USESHOWWINDOW)
+        else:
+            self.assertEqual(p, {})
+
+    def test_kayit_tek_ssh_cagrisi(self) -> None:
+        """⚠ `register()` tek ssh çağrısı yapmalı (IP sunucudan gelir)."""
+        h = _SahteHavuz()
+        _init(h)
+        h._ssh_cagrilari.clear()
+        r = h.register(port=8791, caps=["code"])
+        self.assertTrue(r.get("ok"))
+        # ⚠ IP sunucunun doldurduğu satırdan gelmeli
+        self.assertEqual(r.get("ip"), "95.70.193.163")
+        # ⚠ Kaç ssh çağrısı yapıldı?
+        self.assertEqual(len(h._ssh_cagrilari), 1,
+                         f"beklenen 1, görülen {len(h._ssh_cagrilari)}")
+
+    def test_heartbeat_basina_tek_cagri(self) -> None:
+        h = _SahteHavuz(aralik=0.1)
+        _init(h)
+        try:
+            h.baslat(port=8791, caps=["code"], tunel=False)
+            h._ssh_cagrilari.clear()
+            time.sleep(0.32)
+            # ⚠ aralık 0,1 → ~3 tur; tur başına 1 çağrı (+ küçük sapma)
+            self.assertLessEqual(len(h._ssh_cagrilari), 5,
+                                 f"çok fazla ssh: {len(h._ssh_cagrilari)}")
+            self.assertGreaterEqual(len(h._ssh_cagrilari), 1)
+        finally:
+            h.durdur()
 
 
 class TestHataToleransi(unittest.TestCase):

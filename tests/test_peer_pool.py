@@ -54,6 +54,9 @@ class _SahteHavuz(PeerPool):
                     import ast as _ast
 
                     yeni = json.loads(_ast.literal_eval(parca[:son]))
+                    # ⚠ Sunucu IP'yi `SSH_CLIENT`'ten doldurur (taklit)
+                    if not yeni.get("ip"):
+                        yeni["ip"] = "95.70.193.163"
                     self.defter = [d for d in self.defter
                                    if d.get("node_id") != yeni.get("node_id")]
                     self.defter.append(yeni)
