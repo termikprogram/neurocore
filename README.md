@@ -17,6 +17,9 @@
 >
 > 🤖 **AI-okunur şartname** — sözde kod + JSON şemaları + değişmez kurallar:
 > [docs/SPEC.md](docs/SPEC.md)
+>
+> 🇬🇧 **English guide & portability matrix** (NVIDIA / AMD / AI GPUs, CPU):
+> [README.en.md](README.en.md)
 
 **Donanım-farkında, çok-modlu, kendi kendini büyütebilen yapay zeka sistemi.**
 Aynı zamanda **kod yazabilen, komut çalıştırabilen ve uygulamaları (Godot,
@@ -1494,3 +1497,20 @@ python tools/kod_benchmark_v2.py --model models/smollm2_kod_v5
 # Nihai doğrulama (7/7 bileşen)
 python tools/nihai_dogrulama.py
 ```
+
+---
+
+## Donanım ve dil taşınabilirliği (ölçüldü)
+
+| Konu | Durum |
+|---|---|
+| **İngilizce kullanıcı** | ✅ Ajan İngilizce yanıtlar (sistem istemine dil kuralı eklendi) · ⚠️ yerel model Türkçe eğitimli (EN 3,1 token/kelime · TR 2,5) |
+| **NVIDIA Pascal (1080 Ti)** | ✅ test edildi · `--batch 8 --amp-yok` |
+| **NVIDIA Ampere/Ada/Blackwell** | ✅ bekleniyor · bf16 yerel, `--batch 8–32` |
+| **NVIDIA AI (A100/H100/L40S)** | ✅ bekleniyor · tek GPU (device 0); çoklu GPU yok |
+| **AMD (ROCm, Linux)** | ⚠️ çalışmalı · torch ROCm'i `cuda.*` üzerinden gösterir; burada test edilmedi |
+| **AMD (Windows)** | ❌ ROCm yok → **CPU** |
+| **Apple Silicon / Intel XPU** | ❌ MPS/XPU dalı yok → **CPU** |
+| **CUDA yokken** | ✅ ölçüldü: governor + model çökmeden CPU'ya düşüyor |
+
+Ayrıntı ve kurulum: [README.en.md](README.en.md)

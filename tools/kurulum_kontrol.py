@@ -115,8 +115,17 @@ def main() -> int:
         import torch
 
         cuda = bool(torch.cuda.is_available())
-        _kontrol("CUDA kullanılabilir", cuda,
-                 f"torch {torch.__version__} · cuda {torch.version.cuda}")
+        # ⚠ Backend ayrımı: ROCm (AMD Linux) da `torch.cuda.*` üzerinden
+        # görünür; `torch.version.cuda` None olur, `torch.version.hip` dolu.
+        hip = getattr(torch.version, "hip", None)
+        if hip:
+            backend = f"ROCm {hip} (AMD)"
+        elif torch.version.cuda:
+            backend = f"CUDA {torch.version.cuda} (NVIDIA)"
+        else:
+            backend = "CPU (GPU hızlandırma yok)"
+        _kontrol("GPU backend", cuda or not hip,
+                 f"torch {torch.__version__} · {backend}")
         if cuda:
             ad = torch.cuda.get_device_name(0)
             ozellik = torch.cuda.get_device_properties(0)
