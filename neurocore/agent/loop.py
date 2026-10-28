@@ -43,6 +43,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from neurocore.agent.playbooks import PlaybookStore
 from neurocore.agent.cognition import (
     CognitionLayer,
     HataTuru,
@@ -63,6 +64,24 @@ from neurocore.agent.tools import (
 from neurocore.utils.logger import NeuroCoreLogger
 
 logger = NeuroCoreLogger.get_logger("agent.loop")
+
+
+#: Hiyerarşik planlama için en kısa görev uzunluğu
+HIER_MIN_UZUNLUK = 80
+
+#: Bağlam sıkıştırma eşiği: bu kadar mesajdan sonra özetlenir
+SIKISTIRMA_ESIK = 24
+
+#: Sıkıştırmada korunacak son mesaj sayısı
+SIKISTIRMA_TUT = 10
+
+
+def _kisa_args(args: Any) -> str:
+    """Araç argümanlarını tek satırlık kısa metne indirger."""
+    if not isinstance(args, dict):
+        return ""
+    parcalar = [f"{k}={str(v)[:32]}" for k, v in list(args.items())[:3]]
+    return ", ".join(parcalar)[:120]
 
 
 def _kisa_olgu(result: ToolResult) -> str:
@@ -716,6 +735,12 @@ class AgentLoop:
         self._cog: Optional[CognitionLayer] = None
         #: Çalışma başına hedef durumu (olgular, denemeler, açık sorular)
         self._hedef: Optional[HedefDurumu] = None
+        #: ⚠ Playbook deposu (başarılı iş akışları → prosedür)
+        self._playbooks: Optional[PlaybookStore] = None
+        #: Hiyerarşik planlama açık mı (uzun görevlerde)
+        self._hier_aktif = True
+        #: Bu çalışmada kullanılan playbook (kullanım sayacı için)
+        self._kullanilan_playbook = ""
         #: Son plan turunun düşünme metadatası (denetim izi için)
         self._last_plan_meta: Dict[str, Any] = {}
 
@@ -734,6 +759,9 @@ class AgentLoop:
             # ⚠ bilişsel katman sayaçları
             "cog_reflect": 0, "cog_replan": 0, "cog_verify": 0,
             "cog_correct": 0, "cog_recovery": 0,
+            # ⚠ playbook / hiyerarşi / sıkıştırma
+            "playbook_hit": 0, "playbook_saved": 0,
+            "hier_plan": 0, "hier_fail": 0, "context_compressed": 0,
         }
 
     # ─── Yaşam Döngüsü ──────────────────────────────────────────────────
@@ -770,6 +798,18 @@ class AgentLoop:
             except Exception as exc:
                 logger.warning(f"Bilişsel katman kurulamadı: {exc}")
                 self._cog = None
+
+        # ⚠ Playbook deposu: <workspace>/.neurocore/playbooks.jsonl
+        self._hier_aktif = (_os.environ.get("NC_HIER") or "1").strip() not in (
+            "0", "false", "off")
+        try:
+            from pathlib import Path as _P
+
+            kok = _P(workspace or ".") / ".neurocore"
+            self._playbooks = PlaybookStore(kok / "playbooks.jsonl")
+        except Exception as exc:
+            logger.debug(f"Playbook deposu kurulamadı: {exc}")
+            self._playbooks = None
         self._initialized = True
         logger.info(
             f"Ajan döngüsü hazır — {len(registry) if registry else 0} araç, "
@@ -1379,6 +1419,19 @@ class AgentLoop:
                     "user", "Planı uygula. Hemen ilk araç çağrısıyla başla.",
                 ))
 
+        # ⚠ 1) PLAYBOOK: benzer iş daha önce çözüldüyse ipucu ver
+        self._kullanilan_playbook = ""
+        try:
+            self._playbook_ipucu(task, run, messages)
+        except Exception as exc:
+            logger.debug(f"Playbook ipucu atlandı: {exc}")
+
+        # ⚠ 2) HİYERARŞİK PLAN: uzun görevlerde hedef → alt hedef → adım
+        try:
+            self._hiyerarsi_ekle(task, run, messages)
+        except Exception as exc:
+            logger.debug(f"Hiyerarşi atlandı: {exc}")
+
         deadline = time.perf_counter() + max(5.0, max_seconds)
         repeats: Dict[str, int] = {}
         empty_responses = 0
@@ -1632,6 +1685,12 @@ class AgentLoop:
             # ⚠ Periyodik ÖZ-YANSIMA (bounded: en fazla max_reflect kez)
             self._yansima_kapisi(task, run, messages)
 
+            # ⚠ BAĞLAM SIKIŞTIRMA: uzun çalışmada eski mesajları özete indir
+            try:
+                self._baglami_sikistir(messages)
+            except Exception as exc:
+                logger.debug(f"Sıkıştırma atlandı: {exc}")
+
             if not step_made_progress:
                 messages.append(LLMMessage(
                     "user", "Hiçbir araç çalışmadı. Farklı bir yaklaşım dene veya "
@@ -1667,6 +1726,12 @@ class AgentLoop:
                 final_text = self._closing_summary(run)
 
         run.answer = final_text.strip() or self._closing_summary(run)
+
+        # ⚠ Başarılı akışı **prosedür** olarak sakla (sonraki görevlerde ipucu)
+        try:
+            self._playbook_kaydet(task, run)
+        except Exception as exc:
+            logger.debug(f"Playbook kaydı atlandı: {exc}")
         if not run.reason:
             run.reason = "tamamlandı"
         self._add_step(run, AgentStep(
@@ -2045,6 +2110,105 @@ class AgentLoop:
         )
 
     # ─── Bilişsel Katman Kancaları ──────────────────────────────────────
+
+    # ─── Playbook / Hiyerarşi / Sıkıştırma ──────────────────────────────
+
+    def _playbook_ipucu(self, task: str, run: AgentRun,
+                        messages: List[LLMMessage]) -> None:
+        """Benzer başarılı akış varsa plana ipucu ekler."""
+        store = self._playbooks
+        if store is None:
+            return
+        bulunan = store.bul(task, adet=1)
+        if not bulunan:
+            return
+        pb, skor = bulunan[0]
+        self._counter["playbook_hit"] += 1
+        self._kullanilan_playbook = pb.id
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="playbook", ok=True,
+            text=f"benzerlik {skor:.2f} · {pb.goal[:60]}",
+        ))
+        messages.append(LLMMessage("user", "İPUCU (önceki çözüm):\n" + pb.ipucu()))
+
+    def _hiyerarsi_ekle(self, task: str, run: AgentRun,
+                        messages: List[LLMMessage]) -> None:
+        """
+        ⚠ Uzun görevlerde hedef → alt hedef → adım planı üretir (tek çağrı).
+
+        Kısa görevlerde **çalışmaz**: gereksiz maliyet olur.
+        """
+        if not self._hier_aktif or self._router is None:
+            return
+        if len(str(task or "").strip()) < HIER_MIN_UZUNLUK:
+            return
+        from neurocore.agent.hierarchy import planla as _hiyerarsi_planla
+
+        araclar: List[str] = []
+        if self._registry is not None:
+            try:
+                araclar = list(self._registry.names())
+            except Exception:
+                araclar = []
+        sonuc = _hiyerarsi_planla(self._router, task, araclar=araclar)
+        if not sonuc.ok:
+            self._counter["hier_fail"] += 1
+            return
+        self._counter["hier_plan"] += 1
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="plan", ok=True,
+            text=f"hiyerarşi: {len(sonuc.alt_hedefler)} alt hedef · "
+                 f"{len(sonuc.araclar())} araç",
+        ))
+        messages.append(LLMMessage(
+            "user",
+            "HİYERARŞİK PLAN (bu sırayı izle; gerekirse gerekçesiyle sap):\n"
+            + sonuc.ozet()))
+
+    def _baglami_sikistir(self, messages: List[LLMMessage]) -> None:
+        """
+        ⚠ Uzun çalışmada mesaj geçmişini **hedef özetine** indirger.
+
+        Neden: 20+ araç turundan sonra ham geçmiş token bütçesini yer ve
+        modelin dikkatini dağıtır. Korunanlar: sistem istemi + son mesajlar.
+        """
+        if len(messages) <= SIKISTIRMA_ESIK:
+            return
+        ozet = self._hedef.ozet() if self._hedef is not None else ""
+        if not ozet:
+            return
+        korunan = messages[:1] + messages[-SIKISTIRMA_TUT:]
+        yeni = list(messages[:1])
+        yeni.append(LLMMessage(
+            "user",
+            "ÖZET (eski mesajlar sıkıştırıldı):\n" + ozet))
+        yeni.extend(messages[-SIKISTIRMA_TUT:])
+        onceki = len(messages)
+        messages[:] = yeni
+        self._counter["context_compressed"] += 1
+        logger.debug(f"Bağlam sıkıştırıldı: {onceki} → {len(messages)} mesaj")
+
+    def _playbook_kaydet(self, task: str, run: AgentRun) -> None:
+        """Başarılı akışı prosedür olarak saklar (ödül eşiği üstündeyse)."""
+        store = self._playbooks
+        if store is None or not run.ok:
+            return
+        adimlar: List[Dict[str, Any]] = []
+        for step in run.steps:
+            if step.kind == "tool" and step.tool:
+                adimlar.append({"tool": step.tool,
+                                "args": _kisa_args(step.args)})
+        if len(adimlar) < 2:
+            return
+        odul = 0.85 if len(adimlar) >= 3 else 0.7
+        pb = store.kaydet(task, adimlar, odul)
+        if pb is not None:
+            self._counter["playbook_saved"] += 1
+        if self._kullanilan_playbook:
+            try:
+                store.kullanim_artir(self._kullanilan_playbook)
+            except Exception:
+                pass
 
     def _kanit_metni(self, run: AgentRun, sinir: int = 2500) -> str:
         """Araç çıktılarından **kanıt** metni üretir (doğrulama için)."""

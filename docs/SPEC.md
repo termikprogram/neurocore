@@ -751,6 +751,34 @@ MUST 24  NC_COG=0 → eski davranış birebir korunur
 
 ---
 
+## 15.5 Playbook · hiyerarşi · bağlam sıkıştırma
+
+| Bileşen | Dosya | İş | Sınır |
+|---|---|---|---|
+| Playbook | `agent/playbooks.py` | başarılı akış → prosedür (JSONL) · benzer görevde ipucu | ödül ≥0.6, ≥2 adım, ≤8 adım, Jaccard ≥0.35 (önek duyarlı), 200 kayıt |
+| Hiyerarşik plan | `agent/hierarchy.py` | hedef → ≤4 alt hedef → ≤3 adım; araç listesi dışı atılır | tek çağrı, 900 token; hata → boş plan (düz plana düşer) |
+| Bağlam sıkıştırma | `loop._baglami_sikistir` | 24 mesajdan sonra eski geçmiş hedef özetine indirilir | sistem + son 10 mesaj korunur |
+| Kabiliyet seti | `tools/kabiliyet_olc.py` | 10 deterministik kontrol (ağ yok) | <1 sn · skor JSON |
+
+```text
+playbook: başarılı çalışma → {goal, adimlar[], odul} → .neurocore/playbooks.jsonl
+          yeni görev → benzerlik ≥ 0.35 → "İPUCU (önceki çözüm)" mesajı
+hiyerarşi: |görev| ≥ 80 kr → planla() → "HİYERARŞİK PLAN" mesajı
+sıkıştırma: |messages| > 24 → [system, ÖZET, son 10]
+```
+
+⚠ **Türkçe ek dersi (ölçüldü):** düz küme kesişimi "ağaç" ↔ "ağaçları"
+benzerliğini **0.20** veriyordu (eşik altı). Önek eşleşmesi (≥4 harf) ile
+**0.50**. Playbook bulmanın çalışması buna bağlıdır.
+
+**Değişmezler (MUST):**
+
+```text
+MUST 25  Playbook yalnız başarılı (ödül ≥0.6) ve ≥2 adımlı akışlardan üretilir
+MUST 26  Hiyerarşi planındaki araç adları verilen listeden olmalı; uydurma atılır
+MUST 27  Bağlam sıkıştırması sistem istemini ve son 10 mesajı KORUR
+```
+
 ## 16. Arıza biçimleri ve çareleri
 
 | Belirti | Kök neden | Çare |
