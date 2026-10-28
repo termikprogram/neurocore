@@ -433,11 +433,16 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
         """Genel durum: çalışma alanı, özerklik, model, araç sayıları."""
         _check_origin(request)
         # ⚠ Kilit tutabilecek okumalar: iş parçacığı + 2 sn zaman aşımı
-        autonomy = (await _hizli_oku(state.registry.policy.to_dict, {})
+        # ⚠ ÖLÇÜLDÜ: ilk `router.status()` 6,5 sn sürebiliyor; 2 sn bütçe
+        # onu kesiyordu → UI "model yok" gösteriyordu (regresyon). Sağlayıcı
+        # durumu için daha geniş bütçe, araç istatistikleri için dar bütçe.
+        autonomy = (await _hizli_oku(state.registry.policy.to_dict, {},
+                                     zaman_asimi=3.0)
                     if state.registry else {})
-        llm = (await _hizli_oku(state.router.status, {})
+        llm = (await _hizli_oku(state.router.status, {}, zaman_asimi=8.0)
                if state.router else {})
-        tools = (await _hizli_oku(state.registry.get_stats, {})
+        tools = (await _hizli_oku(state.registry.get_stats, {},
+                                  zaman_asimi=2.5)
                  if state.registry else {})
         return _json({
             "ok": True,

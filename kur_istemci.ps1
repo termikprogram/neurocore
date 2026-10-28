@@ -21,14 +21,16 @@
 [CmdletBinding()]
 param(
     [string]$PythonExe = "",
-    [ValidateSet("cu124", "cu121", "cu118")]
-    [string]$Torch = "cu124",
+    # ⚠ `auto`: GPU'yu algılar ve **doğru PyTorch derlemesini** seçer.
+    [ValidateSet("auto", "cu124", "cu121", "cu118", "cpu")]
+    [string]$Torch = "auto",
     [string]$Sunucu = "",        # boşsa NC_SERVER / .neurocore/peer.json
     [string]$AnahtarDizin = "",
     [string]$AnahtarAdi = "",
     [switch]$VenvYok,
     [switch]$SadeceKontrol,
     [switch]$SadeceAnahtar,
+    [switch]$SadeceGpu,           # yalnız GPU algıla ve PyTorch seçimini yaz
     [switch]$YetkiBekle,
     [switch]$AnahtarYenile        # var olan anahtarı yok say, yenisini üret
 )
@@ -86,6 +88,74 @@ function Kisitla-Izin {
         $kullanici = $env:USERNAME
         & icacls $Yol /inheritance:r /grant:r "$($kullanici):F" 2>&1 | Out-Null
     } catch { }
+}
+
+# ── GPU'ya göre PyTorch derlemesi seç ────────────────────────────────
+function Get-TorchSecim {
+    param([string]$Istenen)
+    $bilgi = @{ secim = "cpu"; surucu = ""; gpu = ""; neden = "" }
+
+    # NVIDIA sürücüsü + kart adı
+    $smi = Get-Command nvidia-smi -ErrorAction SilentlyContinue
+    if ($smi) {
+        try {
+            $surucu = (& $smi.Source --query-gpu=driver_version --format=csv,noheader 2>$null | Select-Object -First 1)
+            $ad = (& $smi.Source --query-gpu=name --format=csv,noheader 2>$null | Select-Object -First 1)
+            if ($surucu) { $bilgi.surucu = $surucu.Trim() }
+            if ($ad) { $bilgi.gpu = $ad.Trim() }
+        } catch { }
+    }
+    # AMD / Intel
+    if (-not $bilgi.gpu) {
+        try {
+            $vc = Get-CimInstance Win32_VideoController -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Name -notmatch 'Basic|Remote|Virtual' } |
+                  Select-Object -First 1
+            if ($vc) { $bilgi.gpu = $vc.Name }
+        } catch { }
+    }
+
+    if ($Istenen -ne "auto") {
+        $bilgi.secim = $Istenen
+        $bilgi.neden = "kullanıcı seçimi"
+        return $bilgi
+    }
+
+    if ($bilgi.surucu -match '^(\d+)') {
+        $major = [int]$Matches[1]
+        # ⚠ Eşleme: sürücü major → en yeni uyumlu CUDA derlemesi
+        if ($major -ge 550)      { $bilgi.secim = "cu124" }
+        elseif ($major -ge 525)  { $bilgi.secim = "cu121" }
+        else                     { $bilgi.secim = "cu118" }
+        $bilgi.neden = "NVIDIA sürücü $major → $($bilgi.secim)"
+    }
+    elseif ($bilgi.gpu -match 'AMD|Radeon') {
+        # Windows'ta ROCm yok → CPU derlemesi (ajan çalışır, model yavaş)
+        $bilgi.secim = "cpu"
+        $bilgi.neden = "AMD GPU (Windows) — ROCm yok, CPU derlemesi"
+    }
+    elseif ($bilgi.gpu -match 'Intel') {
+        $bilgi.secim = "cpu"
+        $bilgi.neden = "Intel GPU — XPU desteği yok, CPU derlemesi"
+    }
+    else {
+        $bilgi.secim = "cpu"
+        $bilgi.neden = "GPU bulunamadı — CPU derlemesi"
+    }
+    return $bilgi
+}
+
+Adim "2b" "GPU ALGILAMA ve PyTorch SEÇİMİ"
+if ($SadeceGpu) {
+    $tb = Get-TorchSecim -Istenen $Torch
+    Write-Host ""
+    Write-Host ("=" * 74)
+    Write-Host "  GPU        : $($tb.gpu)"
+    Write-Host "  sürücü     : $($tb.surucu)"
+    Write-Host "  PyTorch    : $($tb.secim)"
+    Write-Host "  gerekçe    : $($tb.neden)"
+    Write-Host ("=" * 74)
+    exit 0
 }
 
 Adim "1b" "SSH ANAHTARI"
@@ -255,9 +325,21 @@ Mutlu "python : $py"
 # ══════════════════════════════════════════════════════════════════════
 #  PAKETLER
 # ══════════════════════════════════════════════════════════════════════
-Adim 3 "PyTorch (CUDA $Torch) — büyük indirme"
+
+$torchBilgi = Get-TorchSecim -Istenen $Torch
+if ($torchBilgi.gpu)     { Mutlu "GPU       : $($torchBilgi.gpu)" }
+if ($torchBilgi.surucu)  { Mutlu "sürücü    : $($torchBilgi.surucu)" }
+Mutlu "PyTorch   : $($torchBilgi.secim)  ($($torchBilgi.neden))"
+if ($torchBilgi.secim -eq "cpu") {
+    Uyari "GPU hızlandırma YOK — ajan çalışır, yerel model CPU'da yavaş olur"
+}
+$Torch = $torchBilgi.secim
+
+Adim 3 "PyTorch ($Torch) — büyük indirme"
 & $py -m pip install --upgrade pip --quiet
-$torchIdx = "https://download.pytorch.org/whl/$Torch"
+# ⚠ CPU derlemesi ayrı dizinde; CUDA derlemeleri cuXXX altında
+$torchIdx = if ($Torch -eq "cpu") { "https://download.pytorch.org/whl/cpu" } `
+            else { "https://download.pytorch.org/whl/$Torch" }
 Write-Host "  * torch/torchvision kaynagi: $torchIdx"
 & $py -m pip install torch torchvision --index-url $torchIdx
 if ($LASTEXITCODE -ne 0) { Hata "PyTorch kurulamadı (ağ/disk?)"; exit 1 }
