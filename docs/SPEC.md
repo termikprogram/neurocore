@@ -186,6 +186,41 @@ execute(ad, args):
 
 ---
 
+## 3.5 Bilişsel katman (`agent/cognition.py`)
+
+Ajanın **tutarlılığını** artırır (ham zekâyı değil). Dört bileşen:
+
+| Bileşen | İş | Sınır |
+|---|---|---|
+| Hata taksonomisi | 9 tür → türe **özel** kurtarma talimatı | her hata için 1 talimat |
+| Hedef durumu | hedef · olgular (≤12) · denemeler (≤16) · açık sorular | özet ≤1200 karakter |
+| Öz-yansıma | `devam \| yeniden_planla \| cevapla \| bildir` | en fazla **2** çağrı |
+| Kanıt doğrulama | yanıt araç çıktısıyla destekleniyor mu | 1 doğrulama + 1 düzeltme |
+
+```text
+araç sonucu:
+  ok    → hedef.olgu_ekle(tek satır kanıt)
+  hata  → tur = siniflandir(hata); mesaj += KURTARMA(tur)      # farklı yol
+her reflect_every (8) araç adımında, max_reflect (2):
+  yansıma = yansit(...)  → yeniden_planla | cevapla | bildir | devam
+nihai yanıt:
+  kanit = araç çıktıları (≤2500 kr)
+  EĞER kanit boş → doğrulama ATLANIR
+  d = dogrula(...); desteksiz ∧ bütçe → yanit = duzelt(...)     # tek çağrı
+```
+
+**Değişmezler (MUST):**
+
+```text
+MUST 21  Bilişsel katman bounded: ≤2 yansıma, ≤1 düzeltme
+MUST 22  Kanıt yoksa doğrulama çağrısı YAPILMAZ
+MUST 23  Router hatasında katman sessizce devre dışı kalır (akış bozulmaz)
+MUST 24  NC_COG=0 → eski davranış birebir korunur
+```
+
+Adım türleri: `recovery` · `critique` · `verify`.
+Test: `tests/test_cognition.py` — **34 test**, ağ çağrısı yok.
+
 ## 4. Araç sistemi (`agent/tools.py`)
 
 ### 4.1 `select_tools()` — sıra önemlidir
@@ -708,6 +743,10 @@ MUST 17  Boyut/uzunluk iddiası dosyadan yeniden okunarak doğrulanır
 MUST 18  Türkçe dosya yazıldıktan sonra BOM kontrolü yapılır
 MUST 19  8 GB VRAM sınıfında eğitim: --batch 8 --seq 128 (TDR)
 MUST 20  Her tur sonunda rapor: önce/sonra sayıları + kalıcı dersler
+MUST 21  Bilişsel katman bounded: ≤2 yansıma, ≤1 düzeltme
+MUST 22  Kanıt yoksa doğrulama çağrısı YAPILMAZ
+MUST 23  Router hatasında bilişsel katman sessizce devre dışı kalır
+MUST 24  NC_COG=0 → eski davranış birebir korunur
 ```
 
 ---

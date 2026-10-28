@@ -43,6 +43,12 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
+from neurocore.agent.cognition import (
+    CognitionLayer,
+    HataTuru,
+    HedefDurumu,
+    kurtarma_talimati,
+)
 from neurocore.agent.llm import LLMMessage, LLMResponse, LLMRouter
 from neurocore.agent.tools import (
     SAFETY_LABELS,
@@ -57,6 +63,26 @@ from neurocore.agent.tools import (
 from neurocore.utils.logger import NeuroCoreLogger
 
 logger = NeuroCoreLogger.get_logger("agent.loop")
+
+
+def _kisa_olgu(result: ToolResult) -> str:
+    """
+    Araç sonucundan **tek satırlık** doğrulanmış bilgi çıkarır.
+
+    Hedef durumuna girer; bağlamı şişirmeden kanıt taşır.
+    """
+    veri = result.data
+    if isinstance(veri, dict):
+        for anahtar in ("path", "file", "url", "command", "stdout", "text",
+                        "message", "title", "result"):
+            if veri.get(anahtar):
+                return f"{result.tool}: {str(veri[anahtar])[:120]}"
+        return f"{result.tool}: {len(veri)} alan döndü"
+    if isinstance(veri, (list, tuple)):
+        return f"{result.tool}: {len(veri)} öğe döndü"
+    if veri is not None:
+        return f"{result.tool}: {str(veri)[:120]}"
+    return f"{result.tool}: tamam"
 
 
 # ─── Veri Yapıları ──────────────────────────────────────────────────────────
@@ -685,6 +711,11 @@ class AgentLoop:
         self._thinker: Any = None
         #: ⚠ Ortak havuz (komşu düğümler). `None` ise iş paylaşımı kapalı.
         self._peer: Any = None
+        #: ⚠ Bilişsel katman (hata taksonomisi · yansıma · doğrulama).
+        #: `None` = katman kapalı (eski davranış korunur).
+        self._cog: Optional[CognitionLayer] = None
+        #: Çalışma başına hedef durumu (olgular, denemeler, açık sorular)
+        self._hedef: Optional[HedefDurumu] = None
         #: Son plan turunun düşünme metadatası (denetim izi için)
         self._last_plan_meta: Dict[str, Any] = {}
 
@@ -700,6 +731,9 @@ class AgentLoop:
             "denials": 0, "errors": 0, "cancelled": 0, "rule_runs": 0,
             # ⚠ ortak havuz sayaçları (adım 3)
             "peer_calls": 0, "peer_ok": 0, "peer_fallback": 0,
+            # ⚠ bilişsel katman sayaçları
+            "cog_reflect": 0, "cog_replan": 0, "cog_verify": 0,
+            "cog_correct": 0, "cog_recovery": 0,
         }
 
     # ─── Yaşam Döngüsü ──────────────────────────────────────────────────
@@ -719,6 +753,23 @@ class AgentLoop:
         self._event_bus = event_bus
         self._on_step = on_step
         self._approval = approval_callback
+
+        # ⚠ Bilişsel katman: varsayılan AÇIK; `NC_COG=0` ile kapatılır.
+        # Sınırlar: en fazla 2 yansıma, en fazla 1 düzeltme.
+        import os as _os
+
+        if (_os.environ.get("NC_COG") or "1").strip() not in ("0", "false", "off"):
+            try:
+                self._cog = CognitionLayer(
+                    max_reflect=int(_os.environ.get("NC_COG_REFLECT") or 2),
+                    verify=(_os.environ.get("NC_COG_VERIFY") or "1").strip()
+                    not in ("0", "false", "off"),
+                    reflect_every=int(_os.environ.get("NC_COG_EVERY") or 8),
+                )
+                self._cog.initialize(router=self._router)
+            except Exception as exc:
+                logger.warning(f"Bilişsel katman kurulamadı: {exc}")
+                self._cog = None
         self._initialized = True
         logger.info(
             f"Ajan döngüsü hazır — {len(registry) if registry else 0} araç, "
@@ -1333,6 +1384,9 @@ class AgentLoop:
         empty_responses = 0
         retry_429 = 0
         final_text = ""
+        # ⚠ Hedef durumu: olgular/denemeler yapılandırılmış taşınır
+        self._hedef = HedefDurumu(hedef=task) if self._cog is not None else None
+        self._son_hata = ""
 
         for step_index in range(max(1, max_steps)):
             if self._cancel.is_set():
@@ -1417,6 +1471,9 @@ class AgentLoop:
                 # Araç yok → nihai yanıt olmalı.
                 text = (response.text or "").strip()
                 if text:
+                    # ⚠ BİLİŞSEL KAPI: yanıt araç kanıtıyla destekleniyor mu?
+                    # Desteklenmiyorsa **bir kez** düzeltme istenir (bounded).
+                    text = self._cevabi_dogrula(task, text, run)
                     final_text = text
                     break
 
@@ -1543,6 +1600,37 @@ class AgentLoop:
                     messages.append(LLMMessage(
                         "user", f"Araç sonucu ({tool_name}):\n{result_text}",
                     ))
+
+                # ⚠ Hedef durumu: bilinen olgu / deneme
+                if self._hedef is not None:
+                    if result.ok:
+                        self._hedef.olgu_ekle(_kisa_olgu(result))
+                    else:
+                        self._hedef.deneme_ekle(f"{tool_name} → HATA")
+
+                # ⚠ HATA TAKSONOMİSİ: türüne göre **farklı** kurtarma ver
+                # (aynı çağrıyı körlemesine tekrarlamak yerine)
+                if not result.ok and self._cog is not None:
+                    hata_metni = str(result.error or result_text or "")
+                    self._son_hata = hata_metni[:300]
+                    tur = self._cog.siniflandir(hata_metni)
+                    if tur != HataTuru.YOK:
+                        talimat = kurtarma_talimati(tur)
+                        self._counter["cog_recovery"] += 1
+                        self._add_step(run, AgentStep(
+                            index=len(run.steps), kind="recovery", ok=False,
+                            text=f"{tur.value}: {talimat[:160]}",
+                        ))
+                        messages.append(LLMMessage(
+                            "user", f"KURTARMA ({tur.value}): {talimat}"))
+
+            # ⚠ BİLİŞSEL İZLEME: yalnız araç çağrılan turlarda çalışır.
+            if calls and self._hedef is not None:
+                self._hedef.deneme_ekle(
+                    f"{len(calls)} araç → {'ilerleme' if step_made_progress else 'ilerleme yok'}")
+
+            # ⚠ Periyodik ÖZ-YANSIMA (bounded: en fazla max_reflect kez)
+            self._yansima_kapisi(task, run, messages)
 
             if not step_made_progress:
                 messages.append(LLMMessage(
@@ -1955,6 +2043,102 @@ class AgentLoop:
             ),
             str(yanit.get("kaynak") or "komsu"),
         )
+
+    # ─── Bilişsel Katman Kancaları ──────────────────────────────────────
+
+    def _kanit_metni(self, run: AgentRun, sinir: int = 2500) -> str:
+        """Araç çıktılarından **kanıt** metni üretir (doğrulama için)."""
+        parcalar: List[str] = []
+        for step in run.steps:
+            if step.kind == "tool" and step.result:
+                parcalar.append(f"[{step.tool}] {step.result}")
+        metin = "\n".join(parcalar)
+        return metin[-sinir:] if len(metin) > sinir else metin
+
+    def _cevabi_dogrula(self, task: str, cevap: str, run: AgentRun) -> str:
+        """
+        ⚠ Nihai yanıtı kanıta karşı denetler; desteksizse **bir kez**
+        düzeltme ister. Sınırlı: en fazla 1 düzeltme çağrısı.
+        """
+        cog = self._cog
+        if cog is None or not cog.verify:
+            return cevap
+        kanit = self._kanit_metni(run)
+        if not kanit.strip():
+            return cevap
+        try:
+            sonuc = cog.dogrula(task, cevap, kanit)
+        except Exception as exc:
+            logger.debug(f"Doğrulama çökmeden atlandı: {exc}")
+            return cevap
+        self._counter["cog_verify"] += 1
+        if not sonuc.ok:
+            return cevap
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="verify", ok=sonuc.supported,
+            text=(f"kanıt: {'destekli' if sonuc.supported else 'DESTEKSİZ'} "
+                  f"· puan {sonuc.score:.2f}"
+                  + (f" · eksik: {len(sonuc.unsupported)}"
+                     if sonuc.unsupported else "")),
+        ))
+        if sonuc.supported:
+            return cevap
+        if self._counter["cog_correct"] >= 1:
+            # ⚠ İkinci düzeltme denenmez: kullanıcıyı boş bırakmamak için
+            # eldeki yanıt korunur.
+            return cevap
+        self._counter["cog_correct"] += 1
+        try:
+            yeni = cog.duzelt(task, cevap, sonuc.unsupported, kanit)
+        except Exception as exc:
+            logger.debug(f"Düzeltme atlandı: {exc}")
+            return cevap
+        return yeni or cevap
+
+    def _yansima_kapisi(self, task: str, run: AgentRun,
+                        messages: List[LLMMessage]) -> None:
+        """
+        ⚠ Periyodik öz-yansıma: her `reflect_every` araç adımında bir kez,
+        toplam `max_reflect` ile sınırlı. Karar modele **yönergedir**, akışı
+        zorla değiştirmez.
+        """
+        cog = self._cog
+        if cog is None or self._hedef is None:
+            return
+        if self._counter["cog_reflect"] >= cog.max_reflect:
+            return
+        arac_adimi = sum(1 for st in run.steps if st.kind == "tool")
+        if arac_adimi < cog.reflect_every or arac_adimi % cog.reflect_every != 0:
+            return
+        try:
+            sonuc = cog.yansit(task, self._hedef.ozet(),
+                               getattr(self, "_son_hata", ""))
+        except Exception as exc:
+            logger.debug(f"Yansıma atlandı: {exc}")
+            return
+        self._counter["cog_reflect"] += 1
+        if not sonuc.ok:
+            return
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="critique", ok=True,
+            text=(f"yansıma: {sonuc.verdict}"
+                  + (f" · eksik {len(sonuc.missing)}" if sonuc.missing else "")),
+        ))
+        if sonuc.verdict == "yeniden_planla":
+            self._counter["cog_replan"] += 1
+            eksik = ", ".join(sonuc.missing) or "belirsiz"
+            messages.append(LLMMessage(
+                "user",
+                f"YENİDEN PLANLA: mevcut yaklaşım ilerlemiyor. Eksikler: {eksik}. "
+                f"{sonuc.next_action or 'Küçük, doğrulanabilir bir adımla yeniden başla.'}"))
+        elif sonuc.verdict == "bildir":
+            messages.append(LLMMessage(
+                "user",
+                "KULLANICIYA BİLDİR: ilerlemek için izin/girdi gerekiyor. "
+                f"{sonuc.next_action or ''}".strip()))
+        elif sonuc.verdict == "cevapla":
+            messages.append(LLMMessage(
+                "user", "Elindeki kanıtla CEVAP VER; yeni araç çağırma."))
 
     def _execute(self, tool_name: str, arguments: Dict[str, Any],
                  run: AgentRun) -> Optional[ToolResult]:
