@@ -1854,6 +1854,23 @@ class Trainer:
 
     # ─── Veri Hazırlama ─────────────────────────────────────────────────
 
+    #: ⚠ KURAL 4 — eğitimde kullanılacak kasa notlarının türü.
+    #:
+    #: Ölçüldü (2026-10-28): kasada 6.061 not var; **2.937'si (%48,5)
+    #: `kind: skill`** — ajanın "Çözüm: onay veriyorum", "Çözüm: ekle"
+    #: gibi kendi ürettiği gürültü notları. Bunlar eğitime girerse model
+    #: gürültüyü öğrenir.
+    #:
+    #: Varsayılan yalnız `reference` + `qa`. `NC_EGITIM_NOTE_TURLERI`
+    #: ortam değişkeni ile genişletilebilir (ör. "reference,qa,concept").
+    EGITIM_NOTE_TURLERI: Tuple[str, ...] = tuple(
+        t.strip() for t in (
+            os.environ.get("NC_EGITIM_NOTE_TURLERI") or "reference,qa"
+        ).split(",") if t.strip())
+
+    #: Notun eğitime girmesi için gereken en düşük güven
+    EGITIM_NOTE_MIN_GUVEN: float = 0.6
+
     def build_dataset_from_vault(self, vault: Any, tokenizer: Any,
                                  seq_len: int = 256, max_notes: int = 500,
                                  include_summaries: bool = True) -> TrainingDataset:
@@ -1884,8 +1901,23 @@ class Trainer:
             logger.error(f"Kasa okunamadı: {exc}")
             return dataset
 
+        # ⚠ KURAL 4: tür ve güven süzgeci (sayaçlarla raporlanır)
+        atlanan_tur = 0
+        atlanan_guven = 0
+
         for note in iterator:
             if not note.body or note.word_count < 5:
+                continue
+            tur = str(getattr(note, "kind", "") or "")
+            if tur and tur not in self.EGITIM_NOTE_TURLERI:
+                atlanan_tur += 1
+                continue
+            try:
+                guven = float(getattr(note, "confidence", 0.0) or 0.0)
+            except (TypeError, ValueError):
+                guven = 0.0
+            if guven < self.EGITIM_NOTE_MIN_GUVEN:
+                atlanan_guven += 1
                 continue
             # ── Ağırlık: güven + **kategori çarpanı** ──
             #

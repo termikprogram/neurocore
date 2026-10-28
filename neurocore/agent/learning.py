@@ -52,6 +52,41 @@ REWARD_MIN = -1.0
 REWARD_MAX = 1.0
 
 
+# ─── Öğrenme Kalite Kuralları (4 kural) ─────────────────────────────────────
+#
+# Ölçüldü (2026-10-28): bugün yazılan 22 notun 11'i "Çözüm: onay veriyorum",
+# "Çözüm: ekle", "Çözüm: 1" gibi **kullanıcı onay sözleriydi**; güvenleri
+# 0.925–0.990'a çıkıyordu. Kasanın %48,5'i bu türden (`kind: skill`).
+# Eğitimde kullanılınca model gürültüyü "doğru davranış" sanıyor.
+
+#: KURAL 1 — bu uzunluğun altındaki görevler kasa notu üretmez
+NOT_MIN_UZUNLUK = 20
+
+#: KURAL 1 — tümü onay sözü ise not yazılmaz (küçük harf, noktalama atılmış)
+ONAY_SOZLERI = frozenset({
+    "onay", "onayliyorum", "onaylıyorum", "onayla", "evet", "tamam", "olur",
+    "peki", "ekle", "devam", "aynen", "dogru", "doğru", "ok", "okay", "yes",
+    "gonder", "gönder", "kaydet", "yap", "basla", "başla", "ilerle", "surdur",
+    "sürdür", "1", "2", "3", "0",
+    # ⚠ Fiil çekimleri: "onay veriyorum", "evet onaylıyorum tamam" gibi
+    # karışık cümleler de gürültüdür (ölçüldü: testte kaçıyordu)
+    "veriyorum", "veriyoruz", "ediyorum", "edelim", "olsun", "lutfen",
+    "lütfen", "yapalim", "yapalım", "ekleyelim", "onaylarim", "onaylarım",
+})
+
+#: KURAL 2 — sistem istemi ile başlayan "görev"ler aslında istemdir
+SISTEM_ONEKLERI = (
+    "aşağıdaki soruyu", "asagidaki soruyu", "aşağıdaki görevi",
+    "asagidaki gorevi", "şu soruyu", "su soruyu", "sen bir",
+    "you are", "görev:", "gorev:", "soru:", "question:",
+)
+
+#: KURAL 4 — eğitim eşikleri (eskiden 5 deneyim / 2 adım idi; ölçüldü:
+#: 2 adım × 8192 token = toplam eğitimin %0,015'i → etkisiz)
+MIN_NEW_EXPERIENCES = 50
+MIN_TRAIN_STEPS = 20
+
+
 def compute_reward(run: Any, *, user_feedback: Optional[float] = None,
                    had_error: bool = False, self_recovered: bool = False) -> float:
     """
@@ -280,7 +315,7 @@ class LearningRecorder:
 
     name = "agent.learning"
 
-    def __init__(self, *, min_new_experiences: int = 5,
+    def __init__(self, *, min_new_experiences: int = MIN_NEW_EXPERIENCES,
                  min_interval_seconds: float = 900.0,
                  max_minutes_per_train: float = 4.0,
                  write_notes: bool = True) -> None:
@@ -417,7 +452,16 @@ class LearningRecorder:
         self._append_journal(record)
         self._observe_evolution(record)
         if self.write_notes and record.instructive:
-            self._write_note(record)
+            # ⚠ KURAL 1: kısa/onay görevleri kasa notu **üretmez**;
+            # yalnız deneyim olarak kalır (kasayı kirletmesin).
+            yazilsin, sebep = self._not_yazilabilir(record)
+            if yazilsin:
+                self._write_note(record)
+            else:
+                self._counter["notes_skipped"] += 1
+                self._emit("learning.note_skipped", {
+                    "task": record.task[:80], "reason": sebep})
+                logger.debug(f"Not yazılmadı ({sebep}): {record.task[:60]}")
 
         self._emit("learning.recorded", {
             "task": record.task[:160], "reward": record.reward,
@@ -528,7 +572,8 @@ class LearningRecorder:
                     body, title=title, kind="skill",
                     tags=["öğrenilen", "ajan"] + [name.split(".")[0]
                                                   for name in record.tools_used[:3]],
-                    confidence=max(0.3, min(0.95, (record.reward + 1) / 2)),
+                    # ⚠ KURAL 3: kalibre edilmiş güven (tek adım → düşük)
+                    confidence=self._not_guven(record),
                     source=f"agent://run/{int(record.at)}",
                 )
                 self._counter["notes_written"] += 1
@@ -549,7 +594,7 @@ class LearningRecorder:
                 title, body, kind="skill",
                 tags=["öğrenilen", "ajan"] + [name.split(".")[0]
                                               for name in record.tools_used[:3]],
-                confidence=max(0.3, min(0.95, (record.reward + 1) / 2)),
+                confidence=self._not_guven(record),
                 importance=0.6,
                 sources=[f"agent://run/{int(record.at)}"],
                 dedupe=True,
@@ -562,9 +607,87 @@ class LearningRecorder:
             logger.debug(f"Öğrenme notu yazılamadı: {exc}")
 
     @staticmethod
-    def _note_title(record: LearningRecord) -> str:
-        """Not başlığı: görevin kısaltılmış hâli."""
-        task = " ".join(record.task.split())
+    def _gorev_ozu(gorev: str) -> str:
+        """
+        ⚠ KURAL 2: görevin **gerçek özü** (sistem istemini ayıklar).
+
+        Ölçüldü: bazı notların başlığı sistem isteminin kopyasıydı
+        ("Aşağıdaki soruyu elinden geldiğince cevapla. SORU: ...").
+        Asıl soru istemin **sonunda** durur; oradan alınır.
+        """
+        temiz = " ".join(str(gorev or "").split())
+        if not temiz:
+            return ""
+        # "SORU:" / "GÖREV:" sonrası gerçek içeriktir
+        alt = temiz.lower()
+        for ayrac in ("soru:", "görev:", "gorev:", "question:"):
+            i = alt.find(ayrac)
+            if i >= 0 and len(temiz) - i > len(ayrac) + 5:
+                return temiz[i + len(ayrac):].strip(" :—-")
+        # "Sen bir ... / You are ..." ile başlıyorsa ilk cümle istemdir
+        for onek in SISTEM_ONEKLERI:
+            if alt.startswith(onek):
+                parcalar = [p.strip() for p in temiz.split(".") if p.strip()]
+                if len(parcalar) > 1:
+                    return ". ".join(parcalar[1:]).strip()
+                return temiz
+        return temiz
+
+    @classmethod
+    def _not_yazilabilir(cls, record: LearningRecord) -> Any:
+        """
+        ⚠ KURAL 1: bu kayıt kasa notu olarak yazılmalı mı?
+
+        Returns:
+            `(yazilsin: bool, sebep: str)`
+        """
+        oz = cls._gorev_ozu(record.task)
+        if len(oz) < NOT_MIN_UZUNLUK:
+            return False, f"görev çok kısa ({len(oz)} < {NOT_MIN_UZUNLUK})"
+        kelimeler = [k.strip(".,!?:;()[]\"'") .lower()
+                     for k in oz.split() if k.strip(".,!?:;()[]\"'")]
+        if kelimeler:
+            onay = sum(1 for k in kelimeler if k in ONAY_SOZLERI)
+            oran = onay / len(kelimeler)
+            # ⚠ Yalnız "tümü onay" değil: **ağırlıklı** onay da gürültüdür
+            # ("onayliyorum onay veriyorum tamam" → 3/4 = 0.75)
+            if oran >= 0.6:
+                return False, f"onay ağırlıklı (%{100 * oran:.0f})"
+        return True, ""
+
+    @staticmethod
+    def _not_guven(record: LearningRecord) -> float:
+        """
+        ⚠ KURAL 3: güven **kalibrasyonu**.
+
+        Eski formül `(ödül+1)/2` idi → tek adımlık "onay veriyorum"
+        görevine 0.925 veriyordu. Yeni formül şunları çarpar:
+
+            taban    : (ödül + 1) / 2
+            adım     : tek adımda 0.6, çoğaldıkça 1.0'a yaklaşır
+            başarı   : araç adımlarının başarı oranı (0.7..1.0)
+
+        Böylece "gerçek iş yapılmış" kayıtlar yüksek, tek adımlıklar
+        düşük güven alır.
+        """
+        taban = max(0.3, min(0.95, (float(record.reward) + 1) / 2))
+        adim = int(getattr(record, "steps", 0) or 0)
+        if adim <= 2:
+            adim_carpani = 0.6
+        else:
+            adim_carpani = min(1.0, 0.6 + 0.05 * adim)
+        iz = list(getattr(record, "tool_trace", []) or [])
+        if iz:
+            basari = sum(1 for t in iz if t.get("ok")) / len(iz)
+        else:
+            basari = 0.7
+        carpan = adim_carpani * (0.7 + 0.3 * basari)
+        return round(max(0.25, min(0.9, taban * carpan)), 3)
+
+    @classmethod
+    def _note_title(cls, record: LearningRecord) -> str:
+        """Not başlığı: görevin **istemden arındırılmış** kısaltılmış hâli."""
+        task = cls._gorev_ozu(record.task)
         if len(task) > 70:
             task = task[:67].rsplit(" ", 1)[0] + "…"
         return f"Çözüm: {task}"
@@ -837,6 +960,11 @@ class LearningRecorder:
         """
         if self._training:
             return {"ok": False, "error": "eğitim zaten çalışıyor"}
+
+        # ⚠ KURAL 4: 2 adımlık koşu eğitim DEĞİLDİR (ölçüldü: toplamın
+        # %0,015'i). Otomatik koşuda en az MIN_TRAIN_STEPS adım istenir.
+        if steps is None:
+            steps = max(MIN_TRAIN_STEPS, 2 * max(1, self.min_new_experiences // 10))
 
         if not force:
             readiness = self.training_readiness()
