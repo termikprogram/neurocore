@@ -947,7 +947,12 @@ class AgentLoop:
 
     # ─── Ana Giriş ──────────────────────────────────────────────────────
 
-    def run(self, task: str, *, max_steps: int = 24, max_seconds: float = 600.0,
+    #: ⚠ ÖLÇÜLDÜ: 24 adım karmaşık görevlerde yetmiyor (ağaç koşusu 37 araç
+    #: çağrısı yaptı ve "adım sınırına ulaştım" dedi). 32'ye çıkarıldı.
+    VARSAYILAN_ADIM = 32
+
+    def run(self, task: str, *, max_steps: int = VARSAYILAN_ADIM,
+            max_seconds: float = 600.0,
             history: Optional[Sequence[LLMMessage]] = None,
             project_context: str = "", plan_first: bool = False) -> AgentRun:
         """

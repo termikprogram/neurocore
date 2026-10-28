@@ -144,6 +144,83 @@ for i, (x, y, z, r) in enumerate(((0.0, 0.0, 2.02, 0.62),
 ''',
     },
 
+    # ⚠ ÖLÇÜLDÜ: palmiye, "ağac" tarifiyle üretildiğinde yapraklar yoğun bir
+    # küre yığını oluyordu (gerçek palmiye yelpazesi değil). Bu tarif
+    # **radyal yelpaze** kullanır: 9 adet yatay düzleştirilmiş frond.
+    "palmiye": {
+        "kategori": "bitki",
+        "aciklama": "Palmiye — ince gövde + 8 sarkık iki segmentli yelpaze",
+        "renk": (0.22, 0.44, 0.20),
+        "govde": '''
+import math as _m
+from mathutils import Matrix as _M4
+
+# ── Gövde: 3 ince segment, hafif kıvrık ──
+# ⚠ ÖLÇÜLDÜ: 3 segmentli gövde (3,2 m) taca göre çok uzundu; palmiye
+# "kaktüs" gibi görünüyordu. Gövde 2 segmente (1,85 m) indirildi.
+for i, (z, r1, r2) in enumerate(((0.0, 0.17, 0.14),
+                                 (0.92, 0.14, 0.115))):
+    bpy.ops.mesh.primitive_cone_add(
+        vertices=8, radius1=r1, radius2=r2, depth=0.95,
+        location=(0.05 * i, 0.03 * i, 0.48 + z))
+    g = bpy.context.active_object
+    g.name = f"Palmiye_Govde_{i+1}"
+    parcalar.append(g)
+
+# ── Taç: 8 yelpaze, her biri 2 segment (yukarı çıkış + aşağı sarkma) ──
+TEPE = 1.92
+ADET = 10
+#       uzunluk  eğim(°)  r1     r2
+# ⚠ ÖLÇÜLDÜ: ilk denemede (r1=0,075) frondlar **ince diken** gibi göründü.
+# Genişlik artırıldı ve eğim yumuşatıldı (52→108 yerine 46→84).
+SEG = ((0.78,     46,      0.22, 0.125),
+       (1.12,     86,      0.125, 0.020))
+
+for i in range(ADET):
+    aci = _m.radians(360.0 / ADET * i)
+    Rz = _M4.Rotation(aci, 4, 'Z')
+    # ilk segmentin başlangıcı: gövde tepesi
+    taban = _M4.Translation((0.0, 0.0, TEPE))
+    for j, (uzunluk, egim, r1, r2) in enumerate(SEG):
+        bpy.ops.mesh.primitive_cone_add(
+            vertices=4, radius1=r1, radius2=r2, depth=uzunluk,
+            location=(0, 0, 0))
+        y = bpy.context.active_object
+        y.name = f"Palmiye_Yaprak_{i+1}_{j+1}"
+        # ⚠ Bıçak formu: **kalınlığı** incelt, genişliği koru.
+        # Önceki (1, 0.35, 1) genişliği de kısıyordu → diken görünümü.
+        y.scale = (1.0, 1.0, 0.26)
+        bpy.ops.object.transform_apply(scale=True)
+        t = _m.radians(egim)
+        yon = (_m.sin(t), 0.0, _m.cos(t))
+        # segmentin **orta noktası**: başlangıç + yön*uzunluk/2
+        if j == 0:
+            orta = (yon[0] * uzunluk / 2, 0.0, TEPE + yon[2] * uzunluk / 2)
+        else:
+            # önceki segmentin ucu
+            t0 = _m.radians(SEG[0][1])
+            ucu = (_m.sin(t0) * SEG[0][0], 0.0, TEPE + _m.cos(t0) * SEG[0][0])
+            orta = (ucu[0] + yon[0] * uzunluk / 2, 0.0,
+                    ucu[2] + yon[2] * uzunluk / 2)
+        y.matrix_world = (
+            Rz
+            @ _M4.Translation(orta)
+            @ _M4.Rotation(t, 4, 'Y')
+        )
+        parcalar.append(y)
+
+# ── Hindistan cevizi (3 küçük küre) ──
+for i in range(3):
+    a = _m.radians(120.0 * i)
+    bpy.ops.mesh.primitive_ico_sphere_add(
+        subdivisions=1, radius=0.085,
+        location=(0.14 * _m.cos(a), 0.14 * _m.sin(a), TEPE - 0.18))
+    c = bpy.context.active_object
+    c.name = f"Palmiye_Ceviz_{i+1}"
+    parcalar.append(c)
+''',
+    },
+
     "cali": {
         "kategori": "bitki",
         "aciklama": "Çalı — 4 basık küre",
@@ -499,7 +576,9 @@ def uret(urun: str, kalite: str = "orta", *, tohum: int = 42,
     hedef.mkdir(parents=True, exist_ok=True)
 
     if renk is None:
-        renk = (0.42, 0.30, 0.18)
+        # ⚠ Ürün kendi rengini bildirebilir (ör. palmiye yeşili);
+        # aksi hâlde eski varsayılan kahverengi korunur.
+        renk = bilgi.get("renk") or (0.42, 0.30, 0.18)
     baslik = (
         f'SEED = {tohum}\nKALITE_ADI = "{kalite}"\n'
         f'URUN_AD = "{urun.capitalize()}"\nURUN_TURU = "{urun}"\n'

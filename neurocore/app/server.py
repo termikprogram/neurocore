@@ -558,7 +558,8 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
             }, status=409)
 
         session_id = str(payload.get("session_id") or "default")
-        max_steps = int(payload.get("max_steps") or 24)
+        # ⚠ 24 adım yetmiyordu (bkz. AgentLoop.VARSAYILAN_ADIM)
+        max_steps = int(payload.get("max_steps") or 32)
         max_seconds = float(payload.get("max_seconds") or 900.0)
         plan_first = bool(payload.get("plan_first", False))
 

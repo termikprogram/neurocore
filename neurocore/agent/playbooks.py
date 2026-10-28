@@ -143,10 +143,17 @@ class Playbook:
         satirlar = [f"{i + 1}. {a.get('tool')}"
                     + (f" ({a.get('args')})" if a.get("args") else "")
                     for i, a in enumerate(self.adimlar[:MAX_ADIM])]
+        # ⚠ ÖLÇÜLEN DAVRANIŞ: ajan hazır aracı (`asset.uret`) atlayıp kendi
+        # Blender betiğini yazmayı seçti (37 adım, doğrulanmamış yol).
+        # Playbook artık **önce hazır aracı** denemeyi hatırlatır.
+        kural = ("ÖNCE hazır aracı dene (ör. asset.uret · asset.animasyon · "
+                 "asset.onizleme); hazır araç işi yapamıyorsa kendi betiğini "
+                 "yaz ve sonucu doğrula.")
         return (f"Daha önce benzer bir görev şöyle çözüldü "
                 f"(ödül {self.odul:.2f}, {self.kullanim} kez kullanıldı):\n"
                 + "\n".join(satirlar)
-                + "\nİstersen bu yolu izle; daha iyisini biliyorsan farklı git.")
+                + f"\n{kural}\n"
+                + "İstersen bu yolu izle; daha iyisini biliyorsan farklı git.")
 
 
 # ─── Depo ───────────────────────────────────────────────────────────────────
