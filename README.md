@@ -14,6 +14,9 @@
 >
 > 📘 **Kitapçık** — mimari + algoritmalar + ölçümler:
 > [PDF](docs/NeuroCore-Kitapcik.pdf) · [DOCX](docs/NeuroCore-Kitapcik.docx)
+>
+> 🤖 **AI-okunur şartname** — sözde kod + JSON şemaları + değişmez kurallar:
+> [docs/SPEC.md](docs/SPEC.md)
 
 **Donanım-farkında, çok-modlu, kendi kendini büyütebilen yapay zeka sistemi.**
 Aynı zamanda **kod yazabilen, komut çalıştırabilen ve uygulamaları (Godot,
