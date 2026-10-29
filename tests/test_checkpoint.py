@@ -300,3 +300,24 @@ class TestMimariOzet(unittest.TestCase):
         self.assertIn("python", m["yigin"])
         self.assertIn("main.py", m["giris_noktalari"])
         self.assertTrue(m["readme"] is False)
+
+class TestGodotProjeKarti(unittest.TestCase):
+    """⚠ Godot projesi kartta tanınmalı (yığın/komutlar)."""
+
+    def test_godot_karti(self) -> None:
+        import tempfile
+        from neurocore.agent.loop import AgentLoop
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-gcard-"))
+        (kok / "project.godot").write_text("[application]", encoding="utf-8")
+        (kok / "main.tscn").write_text("[gd_scene]", encoding="utf-8")
+        (kok / "build" / "web").mkdir(parents=True)
+        (kok / "build" / "web" / "index.html").write_text("<canvas>",
+                                                          encoding="utf-8")
+        dongu = AgentLoop()
+        dongu._config = None
+        dongu.set_workspace(str(kok))
+        kart = dongu.proje_karti()
+        self.assertIn("godot", kart["mimari"]["yigin"])
+        self.assertIn("project.godot", kart["mimari"]["giris_noktalari"])
+        self.assertTrue(any("http.server" in k for k in kart["komutlar"]))

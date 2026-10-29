@@ -2432,6 +2432,15 @@ class AgentLoop:
                               ("requirements.txt", "python main.py")):
                 if (kok / ad).exists():
                     komutlar.append(komut)
+            # ⚠ Godot projesi: web build varsa servis, yoksa export komutu
+            if (kok / "project.godot").exists():
+                if (kok / "build" / "web" / "index.html").exists():
+                    komutlar.append(
+                        "python -m http.server 8000 --directory build/web")
+                else:
+                    komutlar.append("godot --headless --path . "
+                                    "--export-release Web build/web/index.html")
+                komutlar.append("godot --headless --path . --quit")
         except Exception:
             pass
         kart = {
@@ -2497,6 +2506,10 @@ class AgentLoop:
         except OSError:
             pass
         yigin: List[str] = []
+        if (kok / "project.godot").exists():
+            yigin.append("godot")
+            giris = (["project.godot", "main.tscn"]
+                     if (kok / "main.tscn").exists() else ["project.godot"])
         if (kok / "package.json").exists():
             yigin.append("node")
         if any((kok / a).exists() for a in ("pyproject.toml", "requirements.txt",

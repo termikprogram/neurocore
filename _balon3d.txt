@@ -1,0 +1,69 @@
+23:09:03 calisiyor (0.0 dk)
+23:09:30 calisiyor (0.5 dk)
+23:09:56 calisiyor (0.9 dk)
+23:10:23 calisiyor (1.4 dk)
+23:10:49 calisiyor (1.8 dk)
+23:11:16 calisiyor (2.2 dk)
+23:11:42 calisiyor (2.7 dk)
+23:12:09 bitti (3.1 dk)
+ok=True · adim=54 · neden=tamamlandı · sure=189 sn
+--- CEVAP ---
+**Faz tamamlandı — doğrulama geçti.**
+
+## Ne yapıldı
+Boş klasörden **Balon 3D** oyunu Godot 4 ile yazıldı ve **Web (HTML5)** export alındı.
+
+- **Arazi:** `FastNoiseLite` (SIMPLEX_SMOOTH, FBM 4 oktav) ile prosedürel yumuşak tepeler; 96×96 grid `SurfaceTool` ile üçgenlendi, normaller hesaplandı.
+- **Balonlar:** 3B küreler, her karede `y = terrain_height(x,z) + radius` ile araziye oturuyor.
+- **Kontroller:** W A S D (kameraya göre), yumuşak takip kamerası, HUD + giriş/oyun sonu ekranı.
+- **Oynanış:** Küçük balonu yut → büyü; büyük seni yutarsa küçül (−20 skor). 3 AI rakip (kovala/kaç/gezin).
+
+## Doğrulama sonuçları (ölçüldü)
+| Kontrol | Sonuç |
+|---|---|
+| Headless testler | **33 geçti, 0 kaldı** — 2 kez çalıştırıldı, aynı sonuç (tekrarlanabilir) |
+| Export çıktısı | `index.html` 5.437 B · `index.js` 287.146 B · `index.wasm` 38,5 MB · `index.pck` 26.736 B |
+| HTTP servis | 4 dosya da **HTTP 200** (`http://127.0.0.1:8060`) |
+| `export_presets.cfg` | BOM **yok**, preset adı `Web` (bilinen tuzağa takılmadı) |
+| `project.godot` | `run/main_scene="res://main.tscn"` |
+
+Sınır durumları test kapsamında: boş/boşluk/özel karakter/Türkçe karakter isim doğrulama, eşit yarıçap, farklı tohum, normal vektörü birim kontrolü.
+
+## Teslim dosyaları
+`README.md` · `baslat.ps1` · `baslat.bat` · `SUNUM.md` · `main.gd` · `game_logic.gd` · `test_logic.gd` · `project.godot` · `main.tscn` · `export_presets.cfg` · `build/web/`
+
+## Çalıştırma
+```powershell
+.\baslat.ps1 -Web     # http://127.0.0.1:8060
+```
+Sunucu şu an ayakta. Kalan tek not: WASM 38 MB olduğu için ilk yükleme yavaş; ileride brotli sıkıştırma veya `--export-release` + CDN önerilir.
+--- DOSYALAR ---
+  .neurocore\kontrol.json · 10 KB
+  .neurocore\kontrol_gecmis.jsonl · 8 KB
+  .neurocore\proje.json · 1 KB
+  .neurocore\puzzle.json · 2 KB
+  baslat.bat · 1 KB
+  baslat.ps1 · 1 KB
+  build\web\index.apple-touch-icon.png · 7 KB
+  build\web\index.audio.position.worklet.js · 2 KB
+  build\web\index.audio.worklet.js · 7 KB
+  build\web\index.html · 5 KB
+  build\web\index.icon.png · 3 KB
+  build\web\index.js · 280 KB
+  build\web\index.pck · 26 KB
+  build\web\index.png · 20 KB
+  build\web\index.wasm · 37646 KB
+  export_presets.cfg · 1 KB
+  game_logic.gd · 4 KB
+  game_logic.gd.uid · 1 KB
+  icon.svg · 1 KB
+  icon.svg.import · 1 KB
+  main.gd · 13 KB
+  main.gd.uid · 1 KB
+  main.tscn · 1 KB
+  project.godot · 1 KB
+  README.md · 2 KB
+  sunum.html · 2 KB
+  SUNUM.md · 2 KB
+  test_logic.gd · 3 KB
+  test_logic.gd.uid · 1 KB
