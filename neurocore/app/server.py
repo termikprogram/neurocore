@@ -357,6 +357,41 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
 
     # ─── Durum ──────────────────────────────────────────────────────────
 
+    # ─── Kontrol noktası (kaldığı yerden devam) ───────────────────────
+
+    @app.get("/api/checkpoint")
+    async def get_checkpoint(request: Request) -> Any:
+        """
+        Son çalışmanın nerede kaldığı: yapılanlar, dosyalar, son adım, özet.
+
+        Yarıda kesilen işi kullanıcı buradan görür; "devam et" dendiğinde
+        ajan aynı noktadan sürdürür.
+        """
+        _check_origin(request)
+        loop = getattr(state, "loop", None)
+        if loop is None:
+            return _json({"ok": False, "error": "ajan döngüsü yok"})
+        bilgi = await _hizli_oku(loop.kontrol_durumu, {}, zaman_asimi=5.0)
+        if not bilgi:
+            return _json({"ok": False, "error": "kayıtlı çalışma yok"})
+        return _json({"ok": True, **bilgi})
+
+    @app.post("/api/checkpoint/temizle")
+    async def post_checkpoint_temizle(request: Request) -> Any:
+        """Kontrol noktasını siler (sıfırdan başlamak için)."""
+        _check_origin(request)
+        loop = getattr(state, "loop", None)
+        yol = getattr(loop, "_kontrol_yol", None) if loop is not None else None
+        if yol is None:
+            return _json({"ok": False, "error": "kontrol noktası yolu yok"})
+        try:
+            Path(yol).unlink(missing_ok=True)
+        except OSError as exc:
+            return _json({"ok": False, "error": str(exc)})
+        if loop is not None:
+            loop._kontrol = None
+        return _json({"ok": True})
+
     # ─── Puzzle (iç içe fazlar / walkthrough) ──────────────────────────
 
     @app.get("/api/puzzle")

@@ -775,6 +775,10 @@ class AgentLoop:
         self._hedef: Optional[HedefDurumu] = None
         #: ⚠ Puzzle: iç içe fazlar + walkthrough'lar (agent/puzzle.py)
         self._puzzle: Any = None
+        #: ⚠ Kontrol noktası: kesilen işi kaldığı yerden sürdürmek için
+        self._kontrol: Any = None
+        self._kontrol_yol: Any = None
+        self._kontrol_arsiv: Any = None
         #: ⚠ A) Walkthrough cevabı bekleniyor mu (çalışma durur)
         self._puzzle_bekle = False
         #: B) Dinamik genişletme için planlayıcı (tembel kurulur)
@@ -848,6 +852,17 @@ class AgentLoop:
 
         # ⚠ Playbook deposu: <workspace>/.neurocore/playbooks.jsonl
         # ⚠ Puzzle: iç içe fazlar + walkthrough (NC_PUZZLE=0 kapatır)
+        # ⚠ Kontrol noktası yolları (kesilen işi sürdürmek için)
+        try:
+            from pathlib import Path as _PK
+
+            _kok = _PK(workspace or ".") / ".neurocore"
+            self._kontrol_yol = _kok / "kontrol.json"
+            self._kontrol_arsiv = _kok / "kontrol_gecmis.jsonl"
+        except Exception:
+            self._kontrol_yol = None
+            self._kontrol_arsiv = None
+
         self._puzzle_aktif = (
             _os.environ.get("NC_PUZZLE") or "1").strip() not in (
                 "0", "false", "off")
@@ -1053,10 +1068,16 @@ class AgentLoop:
                 self._counter["rule_runs"] += 1
                 self._run_rules(task, run)
             else:
+                # ⚠ Kontrol noktası: devam mı, yeni çalışma mı?
+                try:
+                    self._kontrol_hazirla(task, run)
+                except Exception as exc:
+                    logger.debug(f"Kontrol noktası hazırlanamadı: {exc}")
+
                 self._run_model(task, run, max_steps=max_steps,
-                                max_seconds=max_seconds, history=history,
-                                project_context=project_context,
-                                plan_first=plan_first)
+                                 max_seconds=max_seconds, history=history,
+                                 project_context=project_context,
+                                 plan_first=plan_first)
         except Exception as exc:
             run.ok = False
             run.error = f"{type(exc).__name__}: {exc}"
@@ -1065,6 +1086,12 @@ class AgentLoop:
                 index=len(run.steps), kind="error",
                 text=f"beklenmeyen hata: {exc}", ok=False,
             ))
+            # ⚠ Hata/kesinti: kaldığı yeri kaydet (devam edilebilsin)
+            try:
+                self._kontrol_bitir(run, tamamlandi=False,
+                                    sebep=f"hata: {type(exc).__name__}")
+            except Exception:
+                pass
             logger.error(f"Ajan çalışması çöktü: {exc}", exc_info=True)
 
         run.duration_ms = (time.perf_counter() - started) * 1000
@@ -1480,6 +1507,12 @@ class AgentLoop:
                     "user", "Planı uygula. Hemen ilk araç çağrısıyla başla.",
                 ))
 
+        # ⚠ 0) KALDIĞIN YER: yarıda kalmış çalışma varsa özeti ver
+        try:
+            self._kontrol_mesaji(messages, run)
+        except Exception as exc:
+            logger.debug(f"Devam mesajı atlandı: {exc}")
+
         # ⚠ 1) PLAYBOOK: benzer iş daha önce çözüldüyse ipucu ver
         self._kullanilan_playbook = ""
         try:
@@ -1533,7 +1566,7 @@ class AgentLoop:
                 run.reason = f"süre sınırı ({max_seconds:.0f}s)"
                 break
 
-            # ⚠ Yetim `tool` mesajları sağlayıcıda 400 üretir — her turda onar
+            # ⚠ Yetim `tool` / yanıtsız `tool_calls` sağlayıcıda 400 üretir
             self._mesajlari_onar(messages)
             response = self._router.chat(messages, tools=schemas,
                                          max_tokens=budget["max_tokens"])
@@ -1551,7 +1584,9 @@ class AgentLoop:
                                            (getattr(m, "tool_calls", None) or [])],
                             "len": len(getattr(m, "content", "") or ""),
                         })
-                    Path(".neurocore/last_messages.json").write_text(
+                    from pathlib import Path as _P3
+
+                    _P3(".neurocore/last_messages.json").write_text(
                         _json.dumps(kayit, ensure_ascii=False, indent=1),
                         encoding="utf-8")
                     logger.warning(f"400 teşhis yazıldı · son 10: {kayit}")
@@ -1791,6 +1826,13 @@ class AgentLoop:
             # ⚠ Periyodik ÖZ-YANSIMA (bounded: en fazla max_reflect kez)
             self._yansima_kapisi(task, run, messages)
 
+            # ⚠ KONTROL NOKTASI: her araç adımında güncelle → kesinti olursa
+            # "nerede kaldım" bilgisi kaybolmasın (12 adımı beklemez).
+            try:
+                self._kontrol_guncelle(run, "devam ediyor")
+            except Exception as exc:
+                logger.debug(f"Kontrol güncellenemedi: {exc}")
+
             # ⚠ FAZ RAPORU: her FAZ_ADIM adımda durum ver, sonra devam et
             try:
                 self._faz_raporu(task, run, messages)
@@ -1838,6 +1880,18 @@ class AgentLoop:
                 final_text = self._closing_summary(run)
 
         run.answer = final_text.strip() or self._closing_summary(run)
+
+        # ⚠ Kontrol noktası: tamamlandı olarak kapat + arşivle
+        try:
+            # ⚠ İptal/hata "tamamlandı" DEĞİLDİR: devam edilebilir kalmalı
+            _iptal = bool(getattr(run, "cancelled", False))
+            self._kontrol_bitir(
+                run,
+                tamamlandi=bool(run.ok and not _iptal),
+                sebep=("kullanıcı durdurdu" if _iptal
+                       else (run.reason or "tamamlandı")))
+        except Exception as exc:
+            logger.debug(f"Kontrol noktası kapatılamadı: {exc}")
 
         # ⚠ C) Planı kasaya yaz (benzer görevlerde geri çağrılır)
         try:
@@ -2288,6 +2342,120 @@ class AgentLoop:
             "HİYERARŞİK PLAN (bu sırayı izle; gerekirse gerekçesiyle sap):\n"
             + sonuc.ozet()))
 
+    # ─── Kontrol noktası (kaldığı yerden devam) ────────────────────────
+
+    def kontrol_durumu(self) -> Dict[str, Any]:
+        """Arayüz/API için: son çalışmanın nerede kaldığı."""
+        if self._kontrol is None:
+            from neurocore.agent.checkpoint import Kontrol
+
+            if self._kontrol_yol is not None:
+                self._kontrol = Kontrol.yukle(self._kontrol_yol)
+        if self._kontrol is None:
+            return {}
+        return {
+            **self._kontrol.to_dict(),
+            "ozet": self._kontrol.ozet(),
+            "son_adim": self._kontrol.son_adim(),
+        }
+
+    def _kontrol_hazirla(self, task: str, run: AgentRun) -> None:
+        """
+        ⚠ Yeni çalışma mı, devam mı?
+
+        Benzer ve **tamamlanmamış** bir kontrol noktası varsa onu yükler;
+        aksi hâlde temiz bir kayıt açar.
+        """
+        from neurocore.agent.checkpoint import Kontrol, devam_edilebilir
+
+        self._kontrol = None
+        if self._kontrol_yol is None:
+            return
+        onceki = Kontrol.yukle(self._kontrol_yol)
+        if devam_edilebilir(onceki, task):
+            self._kontrol = onceki
+            self._kontrol.gorev = self._kontrol.gorev or task
+            self._counter["kontrol_devam"] = self._counter.get(
+                "kontrol_devam", 0) + 1
+            logger.info(f"Kontrol noktasından devam: "
+                        f"{onceki.arac_sayisi()} adım geri yüklendi")
+            # Olguları hedef durumuna taşı (tekrar iş yapılmasın)
+            for olgu in onceki.olgular:
+                if self._hedef is not None:
+                    self._hedef.olgu_ekle(olgu)
+            return
+        self._kontrol = Kontrol(
+            gorev=task, workspace=str(self._workspace or ""),
+            basladi=time.time(), guncellendi=time.time(),
+        )
+
+    def _kontrol_guncelle(self, run: AgentRun, sebep: str = "") -> None:
+        """Çalışma durumunu diske yazar (her faz raporunda + bitişte)."""
+        if self._kontrol is None or self._kontrol_yol is None:
+            return
+        try:
+            from neurocore.agent.checkpoint import Kontrol  # noqa: F401
+
+            adimlar = []
+            for step in run.steps:
+                if step.kind != "tool":
+                    continue
+                adimlar.append({
+                    "tool": step.tool or "?",
+                    "ozet": _kisa_args(step.args) if step.args else "",
+                    "ok": bool(step.ok),
+                })
+            self._kontrol.adimlar = adimlar[-120:]
+            self._kontrol.dosyalar = list(run.files_changed)[:40]
+            if sebep:
+                self._kontrol.sebep = sebep
+            self._kontrol.guncellendi = time.time()
+            self._kontrol.olgular = (list(self._hedef.facts)[:20]
+                                     if self._hedef is not None else [])
+            self._kontrol.acik_sorular = (
+                [s for p in (self._puzzle.bekleyen_sorular()
+                             if self._puzzle is not None else [])
+                 for s in p.get("sorular", [])][:10])
+            if self._puzzle is not None:
+                self._kontrol.puzzle = self._puzzle.to_dict()
+            self._kontrol.kaydet(self._kontrol_yol)
+        except Exception as exc:
+            logger.debug(f"Kontrol noktası güncellenemedi: {exc}")
+
+    def _kontrol_bitir(self, run: AgentRun, *, tamamlandi: bool,
+                       sebep: str) -> None:
+        """Çalışma bittiğinde son durumu yazar ve arşive ekler."""
+        if self._kontrol is None:
+            return
+        self._kontrol.tamamlandi = bool(tamamlandi)
+        self._kontrol.sebep = sebep
+        self._kontrol_guncelle(run, sebep)
+        if self._kontrol_arsiv is not None:
+            try:
+                from neurocore.agent.checkpoint import Kontrol as _K
+
+                _K.arsivle(self._kontrol, self._kontrol_arsiv)
+            except Exception:
+                pass
+
+    def _kontrol_mesaji(self, messages: List[LLMMessage],
+                        run: AgentRun) -> None:
+        """Devam ederken modele "kaldığın yer" özetini verir."""
+        if self._kontrol is None or not self._kontrol.adimlar:
+            return
+        if self._kontrol.tamamlandi:
+            return
+        metin = self._kontrol.ozet()
+        if not metin:
+            return
+        messages.append(LLMMessage("user", metin))
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="resume", ok=True,
+            text=f"devam: {self._kontrol.arac_sayisi()} adım geri yüklendi · "
+                 f"son: {self._kontrol.son_adim()[:80]}"))
+        self._counter["kontrol_devam_mesaji"] = self._counter.get(
+            "kontrol_devam_mesaji", 0) + 1
+
     # ─── Puzzle (iç içe fazlar / walkthrough) ──────────────────────────
 
     def _puzzle_kur(self, task: str, run: AgentRun,
@@ -2483,6 +2651,12 @@ class AgentLoop:
             self._puzzle_ilerle(run, messages)
         except Exception as exc:
             logger.debug(f"Puzzle ilerlemedi: {exc}")
+        # ⚠ Kontrol noktasını güncelle (kesinti olursa kaldığı yer kalsın)
+        try:
+            self._kontrol_guncelle(run, "devam ediyor")
+        except Exception:
+            pass
+
         # ⚠ B) Aktif yaprak çok kaba ise dinamik alt faz aç
         try:
             self._puzzle_genislet(run, messages)
@@ -2574,6 +2748,30 @@ class AgentLoop:
                     atilan += 1
                 continue
             temiz.append(m)
+        # ⚠ İkinci geçiş: **yanıtsız** tool_calls bırakmak da 400 üretir
+        # ("tool_calls must be followed by tool messages"). Yanıtı olmayan
+        # çağrıları assistant mesajından düşür; içerik korunur.
+        sonuc: List[LLMMessage] = []
+        for i, m in enumerate(temiz):
+            if getattr(m, "role", "") == "assistant":
+                cagrilar = getattr(m, "tool_calls", None) or []
+                if cagrilar:
+                    yanitlanan = {str(getattr(x, "tool_call_id", "") or "")
+                                  for x in temiz[i + 1:]
+                                  if getattr(x, "role", "") == "tool"}
+                    eksik = [c for c in cagrilar
+                             if str(c.get("id") or "") not in yanitlanan]
+                    if eksik:
+                        logger.debug(
+                            f"Yanıtsız tool_calls temizlendi: {len(eksik)}")
+                        try:
+                            m.tool_calls = [c for c in cagrilar
+                                            if c not in eksik] or None
+                        except Exception:
+                            pass
+            sonuc.append(m)
+        temiz = sonuc
+
         if atilan:
             logger.debug(f"Yetim tool mesajı atıldı: {atilan}")
         messages[:] = temiz
