@@ -80,3 +80,6 @@ palm_on.png
 palm_ust.png
 palm_yan.png
 tex256_*.png
+
+# Proje kapsamlı ajan durumu (plan/kontrol)
+**/.neurocore/

@@ -84,7 +84,7 @@ def apply_workspace(state: AppState, path: str) -> List[str]:
     state.workspace = path
     switched: List[str] = []
     for component in (state.coding, state.shell, state.godot,
-                      state.blender, state.vision):
+                        state.blender, state.vision, state.loop):
         if component is None:
             continue
         try:

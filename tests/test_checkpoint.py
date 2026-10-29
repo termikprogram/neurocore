@@ -10,6 +10,7 @@ import json
 import tempfile
 import time
 import unittest
+from typing import Any
 from pathlib import Path
 
 from neurocore.agent.checkpoint import (
@@ -190,3 +191,72 @@ class TestDonguKontrolu(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestProjeKarti(unittest.TestCase):
+    """⚠ Proje klasöründe .neurocore/proje.json — projenin künyesi."""
+
+    def _dongu(self, kok: Path) -> Any:
+        from neurocore.agent.loop import AgentLoop
+
+        loop = AgentLoop()
+        loop._config = None
+        loop._event_bus = None
+        loop.set_workspace(str(kok))
+        return loop
+
+    def test_proje_karti_icerigi(self) -> None:
+        import tempfile
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-proje-"))
+        (kok / "package.json").write_text(
+            '{"name":"x","scripts":{"start":"node server.js","test":"node --test"}}',
+            encoding="utf-8")
+        loop = self._dongu(kok)
+        kart = loop.proje_karti()
+        self.assertEqual(kart["proje"], kok.name)
+        self.assertIn("npm start", kart["komutlar"])
+        self.assertTrue(any("npm" in k and "test" in k for k in kart["komutlar"]))
+
+    def test_proje_dosyalari_yazilir(self) -> None:
+        import tempfile
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-proje2-"))
+        loop = self._dongu(kok)
+        from neurocore.agent.loop import AgentRun
+
+        run = AgentRun(task="t")
+        loop._kontrol_hazirla("proje testi", run)
+        # ⚠ kontrol.json ancak güncelleme ile diske yazılır (tasarım)
+        loop._kontrol_guncelle(run, "devam ediyor")
+        loop._proje_kaydet(run)
+        for ad in ("proje.json", "kontrol.json"):
+            self.assertTrue((kok / ".neurocore" / ad).exists(), f"{ad} yok")
+        kart = json.loads((kok / ".neurocore" / "proje.json")
+                          .read_text(encoding="utf-8"))
+        self.assertEqual(kart["kok"], str(kok.resolve()))
+
+    def test_proje_mesaji_eklenir(self) -> None:
+        import tempfile
+        from neurocore.agent.loop import AgentRun
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-proje3-"))
+        loop = self._dongu(kok)
+        loop._proje_yol.parent.mkdir(parents=True, exist_ok=True)
+        loop._proje_yol.write_text(json.dumps({
+            "proje": "demo", "gorev": "oyun yap", "durum": "devam ediyor",
+            "adim": 5, "son_adim": "code.read_file", "komutlar": ["npm start"],
+        }), encoding="utf-8")
+        mesajlar: list = []
+        loop._proje_mesaji(mesajlar, AgentRun(task="t"))
+        self.assertEqual(len(mesajlar), 1)
+        self.assertIn("PROJE KARTI", mesajlar[0].content)
+        self.assertIn("npm start", mesajlar[0].content)
+
+    def test_set_workspace_yollari_tasir(self) -> None:
+        import tempfile
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-proje4-"))
+        loop = self._dongu(kok)
+        self.assertIn(".neurocore", str(loop._kontrol_yol))
+        self.assertEqual(Path(loop._proje_yol).parent.name, ".neurocore")
+        self.assertEqual(loop._workspace, str(kok.resolve()))

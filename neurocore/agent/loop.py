@@ -35,6 +35,8 @@ Durdurma koşulları:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import difflib
 import json
 import re
@@ -859,6 +861,8 @@ class AgentLoop:
             _kok = _PK(workspace or ".") / ".neurocore"
             self._kontrol_yol = _kok / "kontrol.json"
             self._kontrol_arsiv = _kok / "kontrol_gecmis.jsonl"
+            self._puzzle_yol = _kok / "puzzle.json"
+            self._proje_yol = _kok / "proje.json"
         except Exception:
             self._kontrol_yol = None
             self._kontrol_arsiv = None
@@ -1506,6 +1510,12 @@ class AgentLoop:
                 messages.append(LLMMessage(
                     "user", "Planı uygula. Hemen ilk araç çağrısıyla başla.",
                 ))
+
+        # ⚠ PROJE KARTI: bu klasörde daha önce çalışıldıysa tanıt
+        try:
+            self._proje_mesaji(messages, run)
+        except Exception as exc:
+            logger.debug(f"Proje kartı eklenemedi: {exc}")
 
         # ⚠ 0) KALDIĞIN YER: yarıda kalmış çalışma varsa özeti ver
         try:
@@ -2342,6 +2352,130 @@ class AgentLoop:
             "HİYERARŞİK PLAN (bu sırayı izle; gerekirse gerekçesiyle sap):\n"
             + sonuc.ozet()))
 
+    # ─── Proje kapsamlı durum (.neurocore) ────────────────────────────
+
+    def set_workspace(self, path: Any) -> None:
+        """
+        Etkin çalışma alanını değiştirir ve durum yollarını **proje içine**
+        taşır: `<proje>/.neurocore/`.
+
+        ⚠ ÖLÇÜLEN EKSİK: `apply_workspace` yalnız kod/kabuk katmanlarını
+        güncelliyordu; döngü başlangıç dizininde kalıyordu → plan/kontrol
+        dosyaları proje klasöründe **oluşmuyordu**.
+        """
+        try:
+            kok = Path(str(path)).expanduser().resolve()
+        except (OSError, TypeError):
+            return
+        self._workspace = str(kok)
+        durum = kok / ".neurocore"
+        self._kontrol_yol = durum / "kontrol.json"
+        self._kontrol_arsiv = durum / "kontrol_gecmis.jsonl"
+        self._puzzle_yol = durum / "puzzle.json"
+        self._proje_yol = durum / "proje.json"
+
+    def proje_karti(self, run: Optional[AgentRun] = None) -> Dict[str, Any]:
+        """
+        Projenin **künyesi**: ne olduğu, nasıl çalıştırıldığı, nerede kalındığı.
+
+        Yazıldığı yer: `<proje>/.neurocore/proje.json`
+        """
+        import time as _t
+
+        kok = Path(self._workspace or ".").resolve()
+        komutlar: List[str] = []
+        try:
+            paket = kok / "package.json"
+            if paket.exists():
+                import json as _j
+
+                veri = _j.loads(paket.read_text(encoding="utf-8"))
+                betikler = (veri.get("scripts") or {})
+                for ad in ("start", "dev", "test", "build"):
+                    if ad in betikler:
+                        komutlar.append(f"npm run {ad}" if ad != "start"
+                                        else "npm start")
+            for ad, komut in (("pyproject.toml", "python -m pytest"),
+                              ("requirements.txt", "python main.py")):
+                if (kok / ad).exists():
+                    komutlar.append(komut)
+        except Exception:
+            pass
+        kart = {
+            "proje": kok.name,
+            "kok": str(kok),
+            "gorev": (run.task[:400] if run is not None
+                      else getattr(self._kontrol, "gorev", "")[:400]),
+            "guncellendi": _t.strftime("%Y-%m-%dT%H:%M:%S"),
+            "komutlar": komutlar,
+            "durum": "devam ediyor",
+        }
+        if self._kontrol is not None:
+            kart["adim"] = self._kontrol.arac_sayisi()
+            kart["son_adim"] = self._kontrol.son_adim()
+            kart["dosyalar"] = self._kontrol.dosyalar[:20]
+            kart["durum"] = ("tamamlandı" if self._kontrol.tamamlandi
+                             else "devam ediyor")
+        if self._puzzle is not None:
+            kart["puzzle"] = {
+                "parca": self._puzzle.sayi(),
+                "tamamlanan": self._puzzle.tamamlanan(),
+                "aktif": self._puzzle.aktif_id,
+                "genisletme": self._puzzle.genisletme,
+            }
+        return kart
+
+    def _proje_kaydet(self, run: Optional[AgentRun] = None) -> None:
+        """Proje kartını + puzzle ağacını proje klasörüne yazar."""
+        if not getattr(self, "_proje_yol", None):
+            return
+        try:
+            import json as _j
+
+            self._proje_yol.parent.mkdir(parents=True, exist_ok=True)
+            self._proje_yol.write_text(
+                _j.dumps(self.proje_karti(run), ensure_ascii=False, indent=1),
+                encoding="utf-8")
+            if self._puzzle is not None and getattr(self, "_puzzle_yol", None):
+                self._puzzle_yol.write_text(
+                    _j.dumps(self._puzzle.to_dict(), ensure_ascii=False,
+                             indent=1), encoding="utf-8")
+        except Exception as exc:
+            logger.debug(f"Proje kartı yazılamadı: {exc}")
+
+    def _proje_mesaji(self, messages: List[LLMMessage], run: AgentRun) -> None:
+        """
+        Proje kartı varsa modele "bu proje nedir, nerede kaldın" bilgisini ver.
+
+        ⚠ Yeni bir sohbet açılsa bile ajan projeyi tanır (dosyadan okur).
+        """
+        yol = getattr(self, "_proje_yol", None)
+        if yol is None or not Path(yol).exists():
+            return
+        try:
+            import json as _j
+
+            kart = _j.loads(Path(yol).read_text(encoding="utf-8"))
+        except Exception:
+            return
+        satirlar = ["PROJE KARTI (bu klasörde daha önce çalışıldı):",
+                    f"  proje: {kart.get('proje')} · durum: {kart.get('durum')}"]
+        if kart.get("gorev"):
+            satirlar.append(f"  son görev: {str(kart['gorev'])[:160]}")
+        if kart.get("adim"):
+            satirlar.append(f"  ilerleme: {kart['adim']} adım · "
+                            f"son: {str(kart.get('son_adim') or '')[:90]}")
+        if kart.get("komutlar"):
+            satirlar.append("  çalıştırma: " + " · ".join(kart["komutlar"]))
+        if kart.get("dosyalar"):
+            satirlar.append("  değişen dosyalar: "
+                            + ", ".join(kart["dosyalar"][:8]))
+        if kart.get("puzzle"):
+            pz = kart["puzzle"]
+            satirlar.append(f"  plan: {pz.get('parca')} parça · "
+                            f"{pz.get('tamamlanan')} tamam · aktif {pz.get('aktif')}")
+        messages.append(LLMMessage("user", "\n".join(satirlar)))
+
     # ─── Kontrol noktası (kaldığı yerden devam) ────────────────────────
 
     def kontrol_durumu(self) -> Dict[str, Any]:
@@ -2419,6 +2553,7 @@ class AgentLoop:
             if self._puzzle is not None:
                 self._kontrol.puzzle = self._puzzle.to_dict()
             self._kontrol.kaydet(self._kontrol_yol)
+            self._proje_kaydet(run)
         except Exception as exc:
             logger.debug(f"Kontrol noktası güncellenemedi: {exc}")
 
@@ -2437,6 +2572,11 @@ class AgentLoop:
                 _K.arsivle(self._kontrol, self._kontrol_arsiv)
             except Exception:
                 pass
+        # ⚠ Proje künyesini son durumla güncelle (proje.json)
+        try:
+            self._proje_kaydet(run)
+        except Exception:
+            pass
 
     def _kontrol_mesaji(self, messages: List[LLMMessage],
                         run: AgentRun) -> None:
