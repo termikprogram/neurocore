@@ -40,6 +40,7 @@ from pathlib import Path
 import difflib
 import json
 import re
+import subprocess
 import threading
 import time
 from dataclasses import dataclass, field
@@ -213,6 +214,12 @@ Kullanıcı hangi dilde yazdıysa **o dilde** yanıtla. Türkçe soruya Türkçe
 İngilizce soruya İngilizce. Kod, komut ve dosya adları dilden bağımsızdır;
 onları **olduğu gibi** bırak. Dil belirsizse (ör. tek sözcük) son kullanılan
 dili sürdür.
+
+## Araştırma (görsel/3B/API işlerinde zorunlu)
+Görsel, 3B, ışık/gölge/materyal, ses veya motor-API işlerinde **en az bir kez**
+ara: `web.search` ya da bilgi kasası (`knowledge.search`). Bulduğun 2-3 maddeyi
+kısa not et ve hangi ayarı neden seçtiğini yaz. Kullanmadığın seçeneği de
+(wed'de desteklenmiyor, performans vb.) açıkla.
 
 ## Ortam ve bağımlılık kontrolü (zorunlu)
 Plan kurduktan **sonra**, işe başlamadan önce ortamı denetle:
@@ -2561,6 +2568,52 @@ class AgentLoop:
         except Exception as exc:
             logger.debug(f"Proje kartı yazılamadı: {exc}")
 
+    def _teslim_tazele(self, run: AgentRun) -> None:
+        """
+        ⚠ ÖLÇÜLEN HATA: ajan görsel kod değiştirdi ama **web export'u
+        yenilemedi** (build/web 20 dk eski kaldı, kullanıcı güncellemeyi görmez).
+        Kaynak dosya build'den yeniyse export otomatik yenilenir.
+        """
+        if not getattr(self, "_workspace", None):
+            return
+        kok = Path(self._workspace).resolve()
+        web = kok / "build" / "web" / "index.pck"
+        if not web.exists():
+            return
+        kaynaklar = [p for p in kok.rglob("*")
+                     if p.is_file() and p.suffix in (".gd", ".tscn", ".godot")
+                     and ".godot" not in p.parts and ".neurocore" not in p.parts]
+        if not kaynaklar:
+            return
+        en_yeni = max(p.stat().st_mtime for p in kaynaklar)
+        if en_yeni <= web.stat().st_mtime:
+            return                      # build güncel
+        komut = ("godot --headless --path . --export-release Web "
+                 "build/web/index.html")
+        try:
+            from neurocore.agent.envcheck import arac_durumu
+
+            durum = arac_durumu("godot")
+            godot = durum.get("yol") or "godot"
+        except Exception:
+            godot = "godot"
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="shell", ok=True,
+            text="web export bayattı → yeniden dışa aktarılıyor"))
+        try:
+            sonuc = subprocess.run(
+                [godot, "--headless", "--path", ".", "--export-release",
+                 "Web", "build/web/index.html"],
+                cwd=str(kok), capture_output=True, text=True, timeout=240,
+                encoding="utf-8", errors="replace")
+            ok = sonuc.returncode == 0 and web.stat().st_mtime > en_yeni
+            self._add_step(run, AgentStep(
+                index=len(run.steps), kind="shell", ok=ok,
+                text=("web export yenilendi" if ok
+                      else "web export BAŞARISIZ (elle kontrol et)")))
+        except Exception as exc:
+            logger.warning(f"Export tazelenemedi: {exc}")
+
     def _proje_handoff(self, run: AgentRun) -> None:
         """
         ⚠ Proje teslimi: `baslat.ps1` · `baslat.bat` · `SUNUM.md` · `sunum.html`.
@@ -2765,6 +2818,12 @@ class AgentLoop:
                 _K.arsivle(self._kontrol, self._kontrol_arsiv)
             except Exception:
                 pass
+        # ⚠ Bayat web build: .gd/.tscn değişti ama export eski → otomatik export
+        try:
+            self._teslim_tazele(run)
+        except Exception as exc:
+            logger.debug(f"Teslim tazeleme atlandı: {exc}")
+
         # ⚠ Proje teslimi: başlatma betikleri + sunum (yalnız tamamlanınca)
         if tamamlandi:
             try:
