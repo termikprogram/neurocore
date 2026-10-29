@@ -214,6 +214,13 @@ Kullanıcı hangi dilde yazdıysa **o dilde** yanıtla. Türkçe soruya Türkçe
 onları **olduğu gibi** bırak. Dil belirsizse (ör. tek sözcük) son kullanılan
 dili sürdür.
 
+## Proje teslimi (zorunlu)
+Bir **proje** oluşturduysan veya bitirdiysen şu üçünü bırak:
+1. `README.md` — ne olduğu, gereksinimler, kurulum, çalıştırma, port, testler.
+2. `baslat.ps1` + `baslat.bat` — tek komutla/çift tıkla çalıştırma.
+3. `SUNUM.md` — ne yapıldı, mimari, çalıştırma, testler, sıradaki adımlar.
+Bunlar yoksa iş **bitmiş sayılmaz**.
+
 ## Temel kurallar
 1. **Önce bak, sonra değiştir.** Bir dosyayı düzenlemeden önce oku. Bir projeyi \
 anlamadan önce `code.workspace_map` ile haritala.
@@ -2405,8 +2412,13 @@ class AgentLoop:
             "proje": kok.name,
             "mimari": self._mimari_ozet(kok),
             "kok": str(kok),
-            "gorev": (run.task[:400] if run is not None
-                      else getattr(self._kontrol, "gorev", "")[:400]),
+            # ⚠ ASIL hedef korunur: sonraki küçük görevler (ör. "README yaz")
+            # kartın "gorev" alanını ezmesin; en son görev ayrı alanda.
+            "gorev": (self._onceki_gorev() or (
+                run.task[:400] if run is not None
+                else getattr(self._kontrol, "gorev", "")[:400])),
+            "son_gorev": (run.task[:400] if run is not None
+                          else getattr(self._kontrol, "gorev", "")[:400]),
             "guncellendi": _t.strftime("%Y-%m-%dT%H:%M:%S"),
             "komutlar": komutlar,
             "durum": "devam ediyor",
@@ -2480,6 +2492,18 @@ class AgentLoop:
                           ("README.md", "README.en.md", "readme.md")),
         }
 
+    def _onceki_gorev(self) -> str:
+        """Proje kartındaki **asıl** hedefi okur (yoksa boş)."""
+        try:
+            if self._proje_yol is not None and Path(self._proje_yol).exists():
+                import json as _j
+
+                veri = _j.loads(Path(self._proje_yol).read_text(encoding="utf-8"))
+                return str((veri or {}).get("gorev") or "")
+        except Exception:
+            pass
+        return ""
+
     def _proje_kaydet(self, run: Optional[AgentRun] = None) -> None:
         """Proje kartını + puzzle ağacını proje klasörüne yazar."""
         if not getattr(self, "_proje_yol", None):
@@ -2497,6 +2521,34 @@ class AgentLoop:
                              indent=1), encoding="utf-8")
         except Exception as exc:
             logger.debug(f"Proje kartı yazılamadı: {exc}")
+
+    def _proje_handoff(self, run: AgentRun) -> None:
+        """
+        ⚠ Proje teslimi: `baslat.ps1` · `baslat.bat` · `SUNUM.md` · `sunum.html`.
+
+        Yalnız **proje klasöründe** (uygulama kökü dışında) üretilir; var olan
+        dosyalar ezilmez. Kullanıcı isteği: plan/walkthrough ne kadar iyiyse
+        teslim ve sunum da o kadar iyi olmalı.
+        """
+        if not getattr(self, "_workspace", None):
+            return
+        try:
+            kok = Path(self._workspace).resolve()
+            if kok == Path.cwd().resolve() and not _os.environ.get("NC_HANDOFF"):
+                return          # uygulama kökünde teslim dosyası üretme
+            from neurocore.agent.handoff import yaz
+
+            saniye = max(1, int((run.duration_ms or 0) / 1000))
+            sonuc = yaz(kok, self.proje_karti(run), {
+                "duration": f"{saniye} sn", "adim": len(run.steps),
+            })
+            if sonuc.get("yazilan"):
+                self._counter["handoff"] = self._counter.get("handoff", 0) + 1
+                self._add_step(run, AgentStep(
+                    index=len(run.steps), kind="plan", ok=True,
+                    text="proje teslimi: " + ", ".join(sonuc["yazilan"])))
+        except Exception as exc:
+            logger.debug(f"Proje teslimi yazılamadı: {exc}")
 
     def _proje_mesaji(self, messages: List[LLMMessage], run: AgentRun) -> None:
         """
@@ -2635,6 +2687,13 @@ class AgentLoop:
                 _K.arsivle(self._kontrol, self._kontrol_arsiv)
             except Exception:
                 pass
+        # ⚠ Proje teslimi: başlatma betikleri + sunum (yalnız tamamlanınca)
+        if tamamlandi:
+            try:
+                self._proje_handoff(run)
+            except Exception as exc:
+                logger.debug(f"Teslim dosyaları yazılamadı: {exc}")
+
         # ⚠ Proje künyesini son durumla güncelle (proje.json)
         try:
             self._proje_kaydet(run)
