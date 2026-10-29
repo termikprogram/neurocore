@@ -260,6 +260,10 @@ class ChatStore:
             if chat_id in self._order:
                 self._order.remove(chat_id)
             self._order.insert(0, chat_id)
+        # ⚠ ÖLÇÜLEN HATA: burada `_save()` yoktu → mesajlar yalnız bellekte
+        # kalıyordu. Uygulama kapanınca sohbet listesi geliyor ama **geçmiş
+        # gelmiyordu** (dosyada başlık "Yeni sohbet", mesaj 0).
+        self._save()
         return chat
 
     def set_workspace(self, chat_id: str, workspace: str) -> Optional[Chat]:

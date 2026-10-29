@@ -775,6 +775,10 @@ class AgentLoop:
         self._hedef: Optional[HedefDurumu] = None
         #: ⚠ Puzzle: iç içe fazlar + walkthrough'lar (agent/puzzle.py)
         self._puzzle: Any = None
+        #: ⚠ A) Walkthrough cevabı bekleniyor mu (çalışma durur)
+        self._puzzle_bekle = False
+        #: B) Dinamik genişletme için planlayıcı (tembel kurulur)
+        self._puzzle_planlayici: Any = None
         #: Puzzle planlaması açık mı (NC_PUZZLE=0 kapatır)
         self._puzzle_aktif = True
         #: ⚠ Playbook deposu (başarılı iş akışları → prosedür)
@@ -1501,8 +1505,22 @@ class AgentLoop:
         retry_429 = 0
         final_text = ""
         # ⚠ Hedef durumu: olgular/denemeler yapılandırılmış taşınır
-        self._hedef = HedefDurumu(hedef=task) if self._cog is not None else None
+        self._hedef = HedefDurumu(hedef=task)
+        self._puzzle_bekle = False if self._cog is not None else None
         self._son_hata = ""
+
+        # ⚠ A) Walkthrough cevabı bekleniyorsa döngü **başlamadan** durur
+        if self._puzzle_bekle and self._puzzle is not None:
+            sorular = self._puzzle.bekleyen_sorular()
+            if sorular:
+                run.reason = "walkthrough: kullanıcı cevabı bekleniyor"
+                run.answer = self._walkthrough_metni(sorular)
+                run.ok = False
+                self._add_step(run, AgentStep(
+                    index=len(run.steps), kind="walkthrough", ok=True,
+                    text=f"{len(sorular)} parça · "
+                         f"{sum(len(s['sorular']) for s in sorular)} soru"))
+                return
 
         # ⚠ 0 (veya negatif) = sınırsız → güvenlik tavanı uygulanır
         etkin_sinir = int(max_steps) if int(max_steps) > 0 else MUTLAK_ADIM
@@ -1519,6 +1537,27 @@ class AgentLoop:
             self._mesajlari_onar(messages)
             response = self._router.chat(messages, tools=schemas,
                                          max_tokens=budget["max_tokens"])
+            # ⚠ TEŞHİS: 400 "role 'tool'" hatasında mesaj listesini diske yaz
+            if not response.ok and "role 'tool'" in str(response.error or ""):
+                try:
+                    import json as _json
+
+                    kayit = []
+                    for m in messages[-10:]:
+                        kayit.append({
+                            "role": getattr(m, "role", "?"),
+                            "tool_call_id": getattr(m, "tool_call_id", ""),
+                            "tool_calls": [c.get("id") for c in
+                                           (getattr(m, "tool_calls", None) or [])],
+                            "len": len(getattr(m, "content", "") or ""),
+                        })
+                    Path(".neurocore/last_messages.json").write_text(
+                        _json.dumps(kayit, ensure_ascii=False, indent=1),
+                        encoding="utf-8")
+                    logger.warning(f"400 teşhis yazıldı · son 10: {kayit}")
+                except Exception:
+                    pass
+
             run.prompt_tokens += response.prompt_tokens
             run.completion_tokens += response.completion_tokens
 
@@ -1799,6 +1838,12 @@ class AgentLoop:
                 final_text = self._closing_summary(run)
 
         run.answer = final_text.strip() or self._closing_summary(run)
+
+        # ⚠ C) Planı kasaya yaz (benzer görevlerde geri çağrılır)
+        try:
+            self._puzzle_kasaya(run)
+        except Exception as exc:
+            logger.debug(f"Puzzle kasa yazımı atlandı: {exc}")
 
         # ⚠ Başarılı akışı **prosedür** olarak sakla (sonraki görevlerde ipucu)
         try:
@@ -2258,6 +2303,22 @@ class AgentLoop:
             return
         if len(str(task or "").strip()) < 60:
             return                      # kısa görevde ağaç kurmak gereksiz
+        # ⚠ SÜRDÜRME: bitmemiş ve benzer bir puzzle varsa yeniden kurma.
+        # Walkthrough onayından sonra "devam" dendiğinde aynı ağaç sürer.
+        if self._puzzle is not None and not self._puzzle.tamamlandi():
+            try:
+                from neurocore.agent.playbooks import benzerlik
+
+                skor = benzerlik(task, self._puzzle.gorev)
+            except Exception:
+                skor = 0.0
+            if skor >= 0.45:
+                self._puzzle.bekliyor = False
+                self._counter["puzzle_surduruldu"] = self._counter.get(
+                    "puzzle_surduruldu", 0) + 1
+                self._puzzle_mesaji(messages, run, ilk=True)
+                return
+
         try:
             from neurocore.agent.puzzle import PuzzlePlanner
 
@@ -2285,6 +2346,11 @@ class AgentLoop:
             satirlar.append(f"\nŞU AN: [{yaprak.id}] {yaprak.baslik}")
             if yaprak.olcut:
                 satirlar.append(f"Tamamlanma ölçütü: {yaprak.olcut}")
+            if yaprak.sorular and not yaprak.cevap and getattr(
+                    self, "_puzzle_dur", True):
+                # ⚠ A) Kullanıcı cevabı yoksa **dur**: çalışma burada kesilir,
+                # sorular arayüze döner; cevap gelince yeni tur devam eder.
+                self._puzzle_bekle = True
             if yaprak.sorular and not yaprak.cevap:
                 satirlar.append("Netleştirme soruları (bağlamdan cevapla, "
                                 "bilinmeyeni varsayım olarak işaretle):")
@@ -2310,6 +2376,75 @@ class AgentLoop:
         self._counter["puzzle_ilerleme"] = self._counter.get(
             "puzzle_ilerleme", 0) + 1
         self._puzzle_mesaji(messages, run)
+
+    @staticmethod
+    def _walkthrough_metni(sorular: List[Dict[str, Any]]) -> str:
+        """Kullanıcıya gösterilecek walkthrough metni."""
+        satirlar = ["Plan hazır — devam etmeden önce birkaç şeyi netleştirelim:", ""]
+        for parca in sorular:
+            satirlar.append(f"**{parca['baslik']}** ([{parca['id']}])")
+            satirlar.extend(f"- {soru}" for soru in parca["sorular"])
+            satirlar.append("")
+        satirlar.append("Cevaplarını yazınca planı güncelleyip devam edeceğim. "
+                        "İstersen `Puzzle` sekmesinden bir parçayı "
+                        "değiştirmek üzere işaretleyebilirsin.")
+        return "\n".join(satirlar)
+
+    def _puzzle_genislet(self, run: AgentRun,
+                         messages: List[LLMMessage]) -> None:
+        """
+        ⚠ B) Aktif yaprak çok kaba ise çalışma sırasında alt parçalara bölünür.
+
+        Sınır: en fazla 2 genişletme, derinlik ≤ 3 (Puzzle.MAX_DERINLIK ile
+        birlikte). Hata sessizdir; akış bozulmaz.
+        """
+        if self._puzzle is None or self._router is None:
+            return
+        if self._puzzle.genisletme >= 2:
+            return
+        yaprak = self._puzzle.aktif_yaprak()
+        if yaprak is None or yaprak.cocuklar or yaprak.derinlik >= 3:
+            return
+        if len(yaprak.baslik) < 12:
+            return
+        try:
+            from neurocore.agent.puzzle import PuzzlePlanner
+
+            if self._puzzle_planlayici is None:
+                self._puzzle_planlayici = PuzzlePlanner(self._router)
+            yeni = self._puzzle_planlayici.genislet(yaprak, max_alt=3)
+        except Exception as exc:
+            logger.debug(f"Puzzle genişletme atlandı: {exc}")
+            return
+        if not yeni:
+            return
+        self._puzzle.genisletme += 1
+        self._counter["puzzle_genisletme"] = self._counter.get(
+            "puzzle_genisletme", 0) + 1
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="plan", ok=True,
+            text=f"dinamik alt faz: [{yaprak.id}] → {len(yeni)} parça"))
+        self._puzzle_mesaji(messages, run)
+
+    def _puzzle_kasaya(self, run: AgentRun) -> None:
+        """⚠ C) Planı kasaya yazar (benzer görevlerde geri çağrılabilir)."""
+        if self._puzzle is None or self._puzzle.tamamlanan() < 2:
+            return
+        try:
+            kok = Path(self._workspace or ".").resolve()
+            kasa = None
+            for aday in (kok, *kok.parents):
+                if (aday / "knowledge_base").is_dir():
+                    kasa = aday / "knowledge_base"
+                    break
+            if kasa is None:
+                kasa = kok / "knowledge_base"
+            yol = self._puzzle.kasaya_yaz(kasa)
+            if yol is not None:
+                self._counter["puzzle_kasa"] = self._counter.get(
+                    "puzzle_kasa", 0) + 1
+        except Exception as exc:
+            logger.debug(f"Puzzle kasaya yazılamadı: {exc}")
 
     def _faz_raporu(self, task: str, run: AgentRun,
                     messages: List[LLMMessage]) -> None:
@@ -2348,6 +2483,11 @@ class AgentLoop:
             self._puzzle_ilerle(run, messages)
         except Exception as exc:
             logger.debug(f"Puzzle ilerlemedi: {exc}")
+        # ⚠ B) Aktif yaprak çok kaba ise dinamik alt faz aç
+        try:
+            self._puzzle_genislet(run, messages)
+        except Exception as exc:
+            logger.debug(f"Puzzle genişletme atlandı: {exc}")
 
     def _baglami_sikistir(self, messages: List[LLMMessage]) -> None:
         """
