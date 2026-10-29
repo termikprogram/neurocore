@@ -1142,6 +1142,12 @@ const Chat = {
     });
     if ($('mcp-refresh')) $('mcp-refresh').onclick = () => this.mcpRefresh();
 
+    // ⚠ Paneller hazır olsun: sekme tıklaması beklemeden bir kez yükle
+    //    (ölçüldü: yalnız tıklamaya bağlıyken panel boş kalabiliyordu).
+    // ⚠ init async değil: promise'leri beklemeyiz, hataları yutarız
+    this.projectYenile().catch(() => {});
+    this.puzzleYenile().catch(() => {});
+
     $('btn-send').onclick = () => this.send();
     $('btn-stop').onclick = () => this.cancel();
     const input = $('input');
@@ -1454,6 +1460,66 @@ const Chat = {
   async mcpSil(ad) {
     await api('/api/mcp/delete', { method: 'POST', body: JSON.stringify({ ad }) });
     this.mcpRefresh();
+  },
+
+  // ─── Proje kartı (mimari + kaldığın yer) ──────────────────────────
+  async projectYenile() {
+    const kap = $('project-card');
+    if (!kap) return;
+    const veri = await api('/api/project');
+    const bos = $('project-empty');
+    if (!veri || !veri.ok || !veri.kart) {
+      kap.innerHTML = '';
+      if (bos) bos.hidden = false;
+      return;
+    }
+    if (bos) bos.hidden = true;
+    const k = veri.kart;
+    const m = k.mimari || {};
+    const kontrol = veri.kontrol || {};
+    const komutlar = (k.komutlar || []).map((c) =>
+      `<code class="proj-komut" data-komut="${this.esc(c)}">${this.esc(c)}</code>`).join(' ');
+    const klasorler = (m.klasorler || []).map((x) =>
+      `<span class="proj-klasor">${this.esc(x.ad)}<b>${x.dosya}</b></span>`).join('');
+    const adimlar = (kontrol.adimlar || []).slice(-6).reverse().map((a) =>
+      `<div class="proj-adim">${a.ok ? '✓' : '✗'} <code>${this.esc(a.tool)}</code>
+       <span class="muted">${this.esc(a.ozet || '')}</span></div>`).join('');
+    kap.innerHTML = `
+      <div class="proj-blok">
+        <div class="proj-ad">📁 ${this.esc(k.proje || '?')}</div>
+        <div class="settings-help">${this.esc(k.kok || '')}</div>
+        <div class="proj-durum">${this.esc(k.durum || '')}
+          · ${this.esc(String(k.adim ?? (kontrol.adimlar || []).length))} adım</div>
+      </div>
+      <div class="proj-blok">
+        <h4>Mimari</h4>
+        <div class="settings-help">yığın: ${this.esc((m.yigin || []).join(', ') || '—')}
+          · ${this.esc(String(m.toplam_dosya ?? 0))} dosya</div>
+        <div class="settings-help">giriş: ${this.esc((m.giris_noktalari || []).join(', ') || '—')}</div>
+        <div class="proj-klasorler">${klasorler || '<span class="muted">—</span>'}</div>
+      </div>
+      <div class="proj-blok">
+        <h4>Çalıştırma</h4>
+        <div class="proj-komutlar">${komutlar || '<span class="muted">komut bulunamadı</span>'}</div>
+      </div>
+      <div class="proj-blok">
+        <h4>Kaldığın yer</h4>
+        <div class="settings-help">${this.esc(k.son_adim || 'henüz adım yok')}</div>
+        ${adimlar}
+        <button class="btn btn-ghost" id="proj-devam">Kaldığı yerden devam et</button>
+      </div>`;
+    kap.querySelectorAll('[data-komut]').forEach((el) => {
+      el.onclick = () => {
+        const input = $('input');
+        if (input) { input.value = el.dataset.komut; input.focus(); }
+      };
+    });
+    if ($('proj-devam')) {
+      $('proj-devam').onclick = () => {
+        const input = $('input');
+        if (input) { input.value = 'devam et'; input.focus(); }
+      };
+    }
   },
 
   // ─── Puzzle (iç içe fazlar) ───────────────────────────────────────
@@ -2022,10 +2088,20 @@ const State = {
   data: null,
 
   init() {
+    // ⚠ ?panel=project|puzzle|steps → sekme otomatik açılır (panel testi)
+    try {
+      const istenen = new URLSearchParams(location.search).get('panel');
+      if (istenen) {
+        const hedef = document.querySelector(`.side-tab[data-tab="${istenen}"]`);
+        if (hedef) setTimeout(() => hedef.click(), 400);
+      }
+    } catch (e) { /* yok */ }
+
     document.querySelectorAll('.side-tab').forEach((tab) => {
       // ⚠ Puzzle sekmesine geçilince ağacı tazele
       tab.addEventListener('click', () => {
         if (tab.dataset.tab === 'puzzle') this.puzzleYenile();
+        if (tab.dataset.tab === 'project') this.projectYenile();
       });
       tab.onclick = () => {
         document.querySelectorAll('.side-tab').forEach((t) => t.classList.remove('active'));

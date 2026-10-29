@@ -126,6 +126,8 @@
       <button class="side-tab active" data-tab="steps">Akış</button>
       <button class="side-tab" data-tab="files">Dosyalar</button>
       <button class="side-tab" data-tab="audit">Denetim</button>
+      <button class="side-tab" data-tab="puzzle">Puzzle</button>
+      <button class="side-tab" data-tab="project">Proje</button>
     </div>
 
     <div class="side-body">
@@ -155,6 +157,12 @@
       </div>
         <div class="empty-hint">Bu görevde değişen dosya yok.</div>
       </div>
+      <!-- Proje: künye + mimari + kaldığın yer -->
+      <div class="side-view" id="view-project">
+        <div id="project-card"></div>
+        <div class="empty-hint" id="project-empty">Proje kartı yok — bir klasöre bağlı sohbette görev çalıştırınca oluşur.</div>
+      </div>
+
       <!-- Puzzle: iç içe fazlar + walkthrough soruları -->
       <div class="side-view" id="view-puzzle">
         <div id="puzzle-tree" class="puzzle-tree"></div>

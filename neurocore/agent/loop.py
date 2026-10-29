@@ -2403,6 +2403,7 @@ class AgentLoop:
             pass
         kart = {
             "proje": kok.name,
+            "mimari": self._mimari_ozet(kok),
             "kok": str(kok),
             "gorev": (run.task[:400] if run is not None
                       else getattr(self._kontrol, "gorev", "")[:400]),
@@ -2424,6 +2425,60 @@ class AgentLoop:
                 "genisletme": self._puzzle.genisletme,
             }
         return kart
+
+    def _mimari_ozet(self, kok: Path) -> Dict[str, Any]:
+        """
+        Projenin **mimari özeti**: giriş noktaları, klasör haritası, yığın.
+
+        ⚠ Amaç: yeni bir oturumda ajan "bu proje nasıl kurulmuş?" sorusunu
+        dosyaları taramadan cevaplayabilsin.
+        """
+        atla = {"node_modules", ".git", "__pycache__", ".venv", "dist",
+                "build", ".neurocore", ".godot", "venv", "target"}
+        giris: List[str] = []
+        for ad in ("server.js", "index.js", "main.js", "app.js",
+                   "public/index.html", "index.html", "main.py", "app.py",
+                   "manage.py", "main.go", "src/main.rs", "Program.cs"):
+            if (kok / ad).is_file():
+                giris.append(ad)
+        klasorler: List[Dict[str, Any]] = []
+        try:
+            toplam_dosya = 0
+            for oge in sorted(kok.iterdir()):
+                if oge.name in atla or oge.name.startswith("."):
+                    continue
+                if oge.is_dir():
+                    sayi = 0
+                    for _ in oge.rglob("*"):
+                        if _.is_file() and not (set(_.parts) & atla):
+                            sayi += 1
+                    klasorler.append({"ad": oge.name, "dosya": sayi})
+                    toplam_dosya += sayi
+                elif oge.is_file():
+                    toplam_dosya += 1
+        except OSError:
+            pass
+        yigin: List[str] = []
+        if (kok / "package.json").exists():
+            yigin.append("node")
+        if any((kok / a).exists() for a in ("pyproject.toml", "requirements.txt",
+                                            "setup.py")):
+            yigin.append("python")
+        if (kok / "Cargo.toml").exists():
+            yigin.append("rust")
+        if (kok / "go.mod").exists():
+            yigin.append("go")
+        testler = [a for a in ("test", "tests", "spec", "__tests__")
+                   if (kok / a).is_dir()]
+        return {
+            "yigin": yigin,
+            "giris_noktalari": giris[:8],
+            "klasorler": klasorler[:12],
+            "toplam_dosya": toplam_dosya,
+            "test_klasoru": testler[:3],
+            "readme": any((kok / a).exists() for a in
+                          ("README.md", "README.en.md", "readme.md")),
+        }
 
     def _proje_kaydet(self, run: Optional[AgentRun] = None) -> None:
         """Proje kartını + puzzle ağacını proje klasörüne yazar."""
@@ -2465,6 +2520,14 @@ class AgentLoop:
         if kart.get("adim"):
             satirlar.append(f"  ilerleme: {kart['adim']} adım · "
                             f"son: {str(kart.get('son_adim') or '')[:90]}")
+        mim = kart.get("mimari") or {}
+        if mim.get("yigin"):
+            satirlar.append("  yığın: " + ", ".join(mim["yigin"]))
+        if mim.get("giris_noktalari"):
+            satirlar.append("  giriş: " + ", ".join(mim["giris_noktalari"]))
+        if mim.get("klasorler"):
+            satirlar.append("  klasörler: " + " · ".join(
+                f"{k['ad']}({k['dosya']})" for k in mim["klasorler"][:8]))
         if kart.get("komutlar"):
             satirlar.append("  çalıştırma: " + " · ".join(kart["komutlar"]))
         if kart.get("dosyalar"):

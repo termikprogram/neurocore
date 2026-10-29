@@ -357,6 +357,31 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
 
     # ─── Durum ──────────────────────────────────────────────────────────
 
+    # ─── Proje kartı (mimari + kaldığın yer) ──────────────────────────
+
+    @app.get("/api/project")
+    async def get_project(request: Request) -> Any:
+        """
+        Etkin projenin künyesi: ne olduğu, mimarisi, komutları, nerede kalındığı.
+
+        Kart `<proje>/.neurocore/proje.json` içinde tutulur; yoksa anlık üretilir.
+        """
+        _check_origin(request)
+        loop = getattr(state, "loop", None)
+        if loop is None:
+            return _json({"ok": False, "error": "ajan döngüsü yok"})
+        try:
+            kart = loop.proje_karti()
+        except Exception as exc:
+            return _json({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
+        kontrol = await _hizli_oku(loop.kontrol_durumu, {}, zaman_asimi=5.0)
+        return _json({
+            "ok": True,
+            "workspace": state.workspace,
+            "kart": kart,
+            "kontrol": kontrol or {},
+        })
+
     # ─── Kontrol noktası (kaldığı yerden devam) ───────────────────────
 
     @app.get("/api/checkpoint")

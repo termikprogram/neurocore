@@ -260,3 +260,43 @@ class TestProjeKarti(unittest.TestCase):
         self.assertIn(".neurocore", str(loop._kontrol_yol))
         self.assertEqual(Path(loop._proje_yol).parent.name, ".neurocore")
         self.assertEqual(loop._workspace, str(kok.resolve()))
+
+class TestMimariOzet(unittest.TestCase):
+    """⚠ Proje kartındaki mimari: giriş noktaları, klasörler, yığın."""
+
+    def test_node_projesi(self) -> None:
+        import tempfile
+        from neurocore.agent.loop import AgentLoop
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-mim-"))
+        (kok / "package.json").write_text('{"name":"x"}', encoding="utf-8")
+        (kok / "server.js").write_text("//", encoding="utf-8")
+        (kok / "public").mkdir()
+        (kok / "public" / "index.html").write_text("<h1>", encoding="utf-8")
+        (kok / "test").mkdir()
+        (kok / "node_modules").mkdir()
+        dongu = AgentLoop()
+        dongu._config = None
+        dongu.set_workspace(str(kok))
+        m = dongu._mimari_ozet(Path(kok).resolve())
+        self.assertIn("node", m["yigin"])
+        self.assertIn("server.js", m["giris_noktalari"])
+        self.assertIn("test", m["test_klasoru"])
+        adlar = [k["ad"] for k in m["klasorler"]]
+        self.assertIn("public", adlar)
+        self.assertNotIn("node_modules", adlar)
+
+    def test_python_projesi(self) -> None:
+        import tempfile
+        from neurocore.agent.loop import AgentLoop
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-mim2-"))
+        (kok / "requirements.txt").write_text("x", encoding="utf-8")
+        (kok / "main.py").write_text("print(1)", encoding="utf-8")
+        dongu = AgentLoop()
+        dongu._config = None
+        dongu.set_workspace(str(kok))
+        m = dongu._mimari_ozet(Path(kok).resolve())
+        self.assertIn("python", m["yigin"])
+        self.assertIn("main.py", m["giris_noktalari"])
+        self.assertTrue(m["readme"] is False)
