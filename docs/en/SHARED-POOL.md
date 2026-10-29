@@ -6,7 +6,7 @@ NeuroCore instances running on different machines (and different networks)
 find each other, share work, and if one does not answer the **job is taken
 over locally**. No inbound port has to be opened.
 
-![Shared pool](images/pool-diagram.png)
+![Shared pool](../images/pool-diagram.png)
 
 ---
 
