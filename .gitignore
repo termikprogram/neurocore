@@ -72,3 +72,11 @@ knowledge_base/
 *.gltf
 _index/
 _*.py
+
+# ⚠ Üretim ara delikleri: GIF'ler zaten depoda, kareler değil
+docs/images/_frames_*/
+palm_34.png
+palm_on.png
+palm_ust.png
+palm_yan.png
+tex256_*.png

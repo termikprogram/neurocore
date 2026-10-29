@@ -53,6 +53,8 @@ over** — work never gets lost.
 
 ![Shared pool diagram](docs/images/pool-diagram.png)
 
+<sub>Editable source: [`docs/images/pool-diagram.svg`](docs/images/pool-diagram.svg) — regenerate the PNG with any SVG renderer.</sub>
+
 How it works, step by step:
 
 | # | Step | Detail |
