@@ -1462,7 +1462,19 @@ class CodingAgent:
         elif chosen == "go":
             command = f"go test ./... {extra_args}".strip()
         elif chosen == "godot":
-            command = f"godot --headless --script {target or 'res://tests/run_tests.gd'} {extra_args}".strip()
+            # ⚠ ÖLÇÜLDÜ: godot PATH'te olmayınca bu komut başarısız oluyordu
+            # (ajan tam yolu elle yazmak zorunda kaldı). Bilinen yolları dene.
+            godot_yolu = "godot"
+            try:
+                from neurocore.agent.envcheck import arac_durumu
+
+                durum = arac_durumu("godot")
+                if durum.get("kurulu") and durum.get("yol"):
+                    godot_yolu = f'"{durum["yol"]}"'
+            except Exception:
+                pass
+            command = (f"{godot_yolu} --headless --script "
+                       f"{target or 'res://tests/run_tests.gd'} {extra_args}").strip()
         else:
             return {
                 "ok": False, "error": "test framework algılanamadı",

@@ -1,0 +1,75 @@
+22:57:30 calisiyor (0.1 dk)
+22:57:57 calisiyor (0.5 dk)
+22:58:23 calisiyor (0.9 dk)
+22:58:50 calisiyor (1.4 dk)
+22:59:17 calisiyor (1.8 dk)
+22:59:43 calisiyor (2.3 dk)
+23:00:10 bitti (2.7 dk)
+ok=True · adim=43 · neden=tamamlandı · sure=145 sn
+--- CEVAP ---
+Proje tamamlandı ve doğrulandı.
+
+## Ne yapıldı
+Boş klasörden, Node.js sürümüyle aynı kurallara sahip 2D balon oyunu Godot 4 / GDScript ile yazıldı ve **Web (HTML5)** olarak dışa aktarıldı.
+
+- WASD hareket, oyuncuyu izleyen kamera, yarıçap + skor HUD'u
+- Oyuncu farklı renkte + 3 yapay zekâ balonu (küçükleri kovalar, büyüklerden kaçar)
+- **BÜYÜK baloncuk KÜÇÜĞÜ yutar** — yarıçap oranı **≥ 1.15**
+- Yem balonları büyütür, küçük balon daha hızlı, yarıçap tavanı ve skor hesabı
+
+## Dosyalar
+| Dosya | İçerik |
+|---|---|
+| `scripts/game_logic.gd` | Saf mantık (sahne bağımsız, test edilebilir) |
+| `scripts/balloon.gd`, `food.gd`, `main.gd` | Balon davranışı, yem, sahne/HUD/kamera |
+| `scenes/main.tscn` | Ana sahne |
+| `tests/test_game_logic.gd` | 18 birim testi |
+| `README.md`, `SUNUM.md`, `baslat.ps1`, `baslat.bat` | Teslim dosyaları |
+| `build/web/` | Export çıktısı (index.html, .js, .wasm, .pck) |
+
+## Doğrulama
+- **Testler:** `=== SONUC: 18 gecti, 0 kaldi ===` (çıkış kodu 0) — 1.14 yutamaz / 1.15 yutar, eşit yarıçap, hız sınırları, tavan, isim 1–16 karakter, skor.
+- **Export:** `build/web` içinde 9 dosya üretildi — `index.wasm` 38.5 MB, `index.js` 287 KB, `index.pck` 26 KB.
+
+## Çalıştırma
+```powershell
+.\baslat.ps1                                    # masaüstü
+python -m http.server 8000 --directory build/web # web → http://localhost:8000
+```
+
+## Kalan sorun
+Yok. Not: `code.run_tests` aracı `godot`'u PATH'te aradığı için başarısız oldu; testleri Godot'un tam yoluyla çalıştırdım (geçti). İsterseniz Godot'u PATH'e ekleyerek bu aracı da doğrudan kullanabilirsiniz.
+--- DOSYALAR ---
+  .neurocore\kontrol.json · 7 KB
+  .neurocore\kontrol_gecmis.jsonl · 6 KB
+  .neurocore\proje.json · 1 KB
+  .neurocore\puzzle.json · 1 KB
+  baslat.bat · 1 KB
+  baslat.ps1 · 1 KB
+  build\web\index.apple-touch-icon.png · 10 KB
+  build\web\index.audio.position.worklet.js · 2 KB
+  build\web\index.audio.worklet.js · 7 KB
+  build\web\index.html · 5 KB
+  build\web\index.icon.png · 4 KB
+  build\web\index.js · 280 KB
+  build\web\index.pck · 26 KB
+  build\web\index.png · 20 KB
+  build\web\index.wasm · 37646 KB
+  export_presets.cfg · 1 KB
+  icon.svg · 1 KB
+  icon.svg.import · 1 KB
+  project.godot · 2 KB
+  README.md · 2 KB
+  scenes\main.tscn · 1 KB
+  scripts\balloon.gd · 1 KB
+  scripts\balloon.gd.uid · 1 KB
+  scripts\food.gd · 1 KB
+  scripts\food.gd.uid · 1 KB
+  scripts\game_logic.gd · 1 KB
+  scripts\game_logic.gd.uid · 1 KB
+  scripts\main.gd · 13 KB
+  scripts\main.gd.uid · 1 KB
+  sunum.html · 3 KB
+  SUNUM.md · 3 KB
+  tests\test_game_logic.gd · 1 KB
+  tests\test_game_logic.gd.uid · 1 KB
