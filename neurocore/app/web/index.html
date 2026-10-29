@@ -271,6 +271,34 @@
       </section>
 
       <section class="settings-block">
+        <h3>MCP Bağlantıları</h3>
+        <p class="settings-help">
+          Blender veya Godot gibi uygulamaları <strong>MCP</strong> ile bağla;
+          araçları ajanın kullanımına açılır.
+        </p>
+        <div id="mcp-list"></div>
+        <div class="field-row">
+          <label for="mcp-ad">Ad</label>
+          <input id="mcp-ad" type="text" placeholder="blender" />
+        </div>
+        <div class="field-row">
+          <label for="mcp-komut">Komut</label>
+          <input id="mcp-komut" type="text" placeholder="uvx" />
+        </div>
+        <div class="field-row">
+          <label for="mcp-args">Argümanlar</label>
+          <input id="mcp-args" type="text" placeholder="blender-mcp" />
+        </div>
+        <div class="settings-actions">
+          <button class="btn btn-primary" id="mcp-add">Bağlantı ekle</button>
+          <button class="btn btn-ghost" id="mcp-preset-blender">Blender şablonu</button>
+          <button class="btn btn-ghost" id="mcp-preset-godot">Godot şablonu</button>
+          <button class="btn btn-ghost" id="mcp-refresh">Yenile</button>
+        </div>
+        <p class="settings-help" id="mcp-help"></p>
+      </section>
+
+      <section class="settings-block">
         <h3>Öğrenme</h3>
         <div id="learn-status"></div>
         <div class="settings-actions">

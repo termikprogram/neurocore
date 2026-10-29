@@ -116,6 +116,8 @@ class DesktopApp:
         )
 
         self.state = AppState()
+        # ⚠ MCP gibi geç çalışan uçlar launcher'a erişsin
+        self.state._launcher = self
         self.state.workspace = self.workspace
 
         # ── Olay bus'ı (denetim ve telemetri için) ──
@@ -348,6 +350,20 @@ class DesktopApp:
             logger.error(
                 "Kabuk katmanı yok — 'Durdur' çalışan komutları öldüremeyecek"
             )
+
+        # ⚠ MCP: dış uygulamalar (Blender, Godot) stdio üzerinden bağlanır.
+        #    Yönetici tembeldir: süreç yalnız araç istendiğinde başlar.
+        try:
+            from neurocore.agent.mcp import MCPYonetici
+
+            self.mcp = MCPYonetici(Path(self.data_path) / "mcp.json")
+            self.state.mcp = self.mcp
+            self._mcp_arac_kaydet()
+            logger.info(f"MCP yöneticisi hazır — "
+                        f"{self.mcp.durum()['sunucu_sayisi']} sunucu")
+        except Exception as exc:
+            logger.warning(f"MCP yöneticisi kurulamadı: {exc}")
+            self.mcp = None
 
         # ── Öğrenme kaydedicisi ──
         # Ajanın yaptığı işi deneyime, kasaya ve eğitime bağlar. Bu bağlama
@@ -697,6 +713,77 @@ class DesktopApp:
         thread.start()
         self._wait_until_ready()
         return thread
+
+    def _mcp_arac_kaydet(self) -> None:
+        """
+        MCP araçlarını kayıt defterine ekler: `mcp.<sunucu>.kullan`.
+
+        ⚠ Sunucuya **bağlanmadan** kaydedilir; araç şeması ilk çağrıda
+        sunucudan istenir. Böylece başlangıç yavaşlamaz ve sunucu kapalıysa
+        ajan yalnız o aracı "bağlanamadı" diye görür.
+
+        ⚠ `register()` imzası: `register(ToolDef, replace=...)` — ilk yazımda
+        (isim, fn, category=...) denendiği için sessizce başarısız olmuştu.
+        """
+        if self.registry is None or self.mcp is None:
+            return
+        from neurocore.agent.tools import (
+            Safety, ToolDef, ToolParameter, ToolResult,
+        )
+
+        for bilgi in (self.mcp.durum().get("sunucular") or []):
+            sunucu = str(bilgi.get("ad") or "")
+            if not sunucu:
+                continue
+            isim = f"mcp.{sunucu}.kullan"
+
+            def _calistir(*_args: Any, _s: str = sunucu, **kwargs: Any) -> Any:
+                paket = dict(kwargs or {})
+                if _args and isinstance(_args[0], dict):
+                    paket = {**_args[0], **paket}
+                arac = str(paket.get("arac") or "")
+                arguments = paket.get("arguments") or {}
+                if isinstance(arguments, str):
+                    try:
+                        import json as _json
+
+                        arguments = _json.loads(arguments)
+                    except json.JSONDecodeError:
+                        arguments = {}
+                if not arac:
+                    return ToolResult(ok=False, tool=f"mcp.{_s}.kullan",
+                                      error="`arac` alanı gerekli")
+                sonuc = self.mcp.cagir(f"mcp.{_s}.{arac}", arguments)
+                return ToolResult(
+                    ok=bool(sonuc.get("ok")),
+                    tool=f"mcp.{_s}.kullan",
+                    data={"metin": sonuc.get("metin", "")},
+                    error="" if sonuc.get("ok") else str(
+                        sonuc.get("error") or sonuc.get("metin") or "")[:300],
+                )
+
+            tanim = ToolDef(
+                name=isim,
+                description=(f"MCP sunucusu `{sunucu}` üzerinden araç çağırır. "
+                             f"Önce o sunucunun araçlarından birini seç "
+                             f"(ör. `arac`), sonra `arguments` sözlüğünü ver."),
+                handler=_calistir,
+                parameters=[
+                    ToolParameter(name="arac", type="string",
+                                  description="MCP aracının adı", required=True),
+                    ToolParameter(name="arguments", type="object",
+                                  description="Araca verilecek parametreler",
+                                  required=False, default={}),
+                ],
+                safety=Safety.EXECUTE,
+                category="mcp",
+                returns="MCP sunucusunun metin yanıtı",
+            )
+            try:
+                self.registry.register(tanim, replace=True)
+                logger.info(f"MCP aracı kaydedildi: {isim}")
+            except Exception as exc:
+                logger.warning(f"MCP aracı kaydedilemedi ({isim}): {exc}")
 
     def _havuz_baslat(self) -> None:
         """

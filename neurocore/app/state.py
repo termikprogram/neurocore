@@ -343,6 +343,8 @@ class AppState:
         self.knowledge_work: Any = None
         #: Öğrenme kaydedicisi (deneyim + kasa + eğitim köprüsü)
         self.learner: Any = None
+        #: MCP yöneticisi (Blender/Godot vb. dış uygulama bağlantıları)
+        self.mcp: Any = None
         #: Kendi kendini geliştirme döngüsü (öğretmen–öğrenci)
         self.study: Any = None
         #: Sohbet deposu (her sohbetin kendi çalışma alanı vardır)

@@ -357,6 +357,78 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
 
     # ─── Durum ──────────────────────────────────────────────────────────
 
+    # ─── MCP (Model Context Protocol) ──────────────────────────────────
+
+    @app.get("/api/mcp")
+    async def get_mcp(request: Request) -> Any:
+        """MCP sunucuları: durum, araç listesi, hazır şablonlar."""
+        _check_origin(request)
+        if getattr(state, "mcp", None) is None:
+            return _json({"ok": False, "error": "MCP yöneticisi yok",
+                          "sunucular": [], "presetler": {}})
+        bilgi = await _hizli_oku(state.mcp.durum, {}, zaman_asimi=6.0)
+        return _json({"ok": True, **(bilgi or {})})
+
+    @app.post("/api/mcp")
+    async def post_mcp(request: Request,
+                       payload: Dict[str, Any] = Body(...)) -> Any:
+        """
+        MCP sunucusu ekler/günceller.
+
+        Gövde: `{ad, komut, args?, env?, cwd?, preset?}`
+        `preset` verilirse (blender/godot) komut/args şablondan gelir.
+        """
+        _check_origin(request)
+        if getattr(state, "mcp", None) is None:
+            raise HTTPException(status_code=503, detail="MCP yöneticisi yok")
+        from neurocore.agent.mcp import PRESETLER
+
+        ad = str(payload.get("ad") or "").strip().lower()
+        komut = str(payload.get("komut") or "").strip()
+        args = payload.get("args") or []
+        if isinstance(args, str):
+            args = [a for a in args.replace(",", " ").split() if a]
+        preset = str(payload.get("preset") or "").strip().lower()
+        if preset and preset in PRESETLER and not komut:
+            ad = ad or preset
+            komut = PRESETLER[preset]["komut"]
+            args = preset and PRESETLER[preset]["args"]
+        sonuc = state.mcp.ekle(ad, komut, list(args),
+                               dict(payload.get("env") or {}),
+                               str(payload.get("cwd") or ""))
+        if sonuc.get("ok"):
+            try:
+                # Yeni sunucu için araç kaydını tazele
+                launcher = getattr(state, "_launcher", None)
+                if launcher is not None:
+                    launcher._mcp_arac_kaydet()
+            except Exception:
+                pass
+        return _json(sonuc)
+
+    @app.post("/api/mcp/test")
+    async def post_mcp_test(request: Request,
+                            payload: Dict[str, Any] = Body(default={})) -> Any:
+        """Bağlantıyı sınar ve sunucunun araçlarını listeler."""
+        _check_origin(request)
+        if getattr(state, "mcp", None) is None:
+            raise HTTPException(status_code=503, detail="MCP yöneticisi yok")
+        ad = str(payload.get("ad") or "").strip().lower()
+        sonuc = await _hizli_oku(lambda: state.mcp.dene(ad), None,
+                                 zaman_asimi=40.0)
+        if sonuc is None:
+            return _json({"ok": False, "error": "zaman aşımı (40 sn)"})
+        return _json(sonuc)
+
+    @app.post("/api/mcp/delete")
+    async def post_mcp_delete(request: Request,
+                              payload: Dict[str, Any] = Body(default={})) -> Any:
+        """MCP sunucusunu kaldırır."""
+        _check_origin(request)
+        if getattr(state, "mcp", None) is None:
+            raise HTTPException(status_code=503, detail="MCP yöneticisi yok")
+        return _json(state.mcp.sil(str(payload.get("ad") or "")))
+
     @app.get("/api/pool")
     async def get_pool(request: Request) -> Any:
         """
@@ -598,8 +670,9 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
             }, status=409)
 
         session_id = str(payload.get("session_id") or "default")
-        # ⚠ 24 adım yetmiyordu (bkz. AgentLoop.VARSAYILAN_ADIM)
-        max_steps = int(payload.get("max_steps") or 32)
+        # ⚠ Varsayılan 0 = **sınırsız** (fazlara bölünmüş iş erken kesilmesin);
+        # güvenlik tavanı AgentLoop.MUTLAK_ADIM ile uygulanır.
+        max_steps = int(payload.get("max_steps") or 0)
         max_seconds = float(payload.get("max_seconds") or 900.0)
         plan_first = bool(payload.get("plan_first", False))
 

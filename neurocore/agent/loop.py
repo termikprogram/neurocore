@@ -69,6 +69,10 @@ logger = NeuroCoreLogger.get_logger("agent.loop")
 #: Hiyerarşik planlama için en kısa görev uzunluğu
 HIER_MIN_UZUNLUK = 80
 
+#: ⚠ Güvenlik tavanı: adım sınırı kaldırıldığında bile kaçınılmaz üst sınır.
+#: 400 adım ≈ 400 araç çağrısı; süre sınırı (600 sn) genelde önce dolar.
+MUTLAK_ADIM = 400
+
 #: Bağlam sıkıştırma eşiği: bu kadar mesajdan sonra özetlenir
 SIKISTIRMA_ESIK = 24
 
@@ -684,10 +688,21 @@ def select_tools(task: str, registry: ToolRegistry,
                 break
             add(name)
 
+    # ⚠ MCP araçları her zaman listeye girer (sunucu başına 1 araç, az sayıda):
+    # ölçüldü — `mcp.sahte.kullan` kayıtlı olmasına rağmen seçime girmediği
+    # için ajan "bende böyle bir araç yok" dedi.
+    # ⚠ Bütçeden bağımsız: MCP sunucusu başına 1 araç (az sayıda) ve
+    # ajan bunları görmeli. Ölçüldü: bütçe 40 doluyken hiç eklenmiyordu.
+    for name in registry.names():
+        if name.startswith("mcp."):
+            add(name)
+
     # ⚠ KESME KURALI: çekirdek araçlar **asla** düşmez.
     # Ölçüldü: düz `selected[:max_tools]` kırpması çekirdeğin sonundaki
     # `asset.animasyon` / `asset.onizleme` gibi araçları atıyordu.
-    cekirdek = [n for n in CORE_TOOLS if registry.has(n)]
+    # ⚠ MCP araçları da çekirdek gibi korunur (kesilirse ajan göremez)
+    cekirdek = ([n for n in CORE_TOOLS if registry.has(n)]
+                + [n for n in registry.names() if n.startswith("mcp.")])
     ozel = [n for n in selected if n not in cekirdek]
     butce = max(int(max_tools), len(cekirdek))
     yer = max(0, butce - len(cekirdek))
@@ -785,6 +800,7 @@ class AgentLoop:
             # ⚠ playbook / hiyerarşi / sıkıştırma
             "playbook_hit": 0, "playbook_saved": 0,
             "hier_plan": 0, "hier_fail": 0, "context_compressed": 0,
+            "faz_raporu": 0,
         }
 
     # ─── Yaşam Döngüsü ──────────────────────────────────────────────────
@@ -953,9 +969,14 @@ class AgentLoop:
 
     # ─── Ana Giriş ──────────────────────────────────────────────────────
 
-    #: ⚠ ÖLÇÜLDÜ: 24 adım karmaşık görevlerde yetmiyor (ağaç koşusu 37 araç
-    #: çağrısı yaptı ve "adım sınırına ulaştım" dedi). 32'ye çıkarıldı.
-    VARSAYILAN_ADIM = 32
+    #: ⚠ KULLANICI KARARI: görevler **fazlara** bölünüyor ve ajan her fazda
+    #: durumu bildirip devam ediyor; sabit adım tavanı işi erken kesiyordu.
+    #: Artık varsayılan **sınırsız** (0); güvenlik için yalnız `MUTLAK_ADIM`
+    #: ve süre sınırı kalır. Tekrardan korunma REPEAT_LIMIT ile sürer.
+    VARSAYILAN_ADIM = 0
+
+    #: Kaçıncı araç adımında faz raporu verilir (0 = kapalı)
+    FAZ_ADIM = 12
 
     def run(self, task: str, *, max_steps: int = VARSAYILAN_ADIM,
             max_seconds: float = 600.0,
@@ -1469,7 +1490,9 @@ class AgentLoop:
         self._hedef = HedefDurumu(hedef=task) if self._cog is not None else None
         self._son_hata = ""
 
-        for step_index in range(max(1, max_steps)):
+        # ⚠ 0 (veya negatif) = sınırsız → güvenlik tavanı uygulanır
+        etkin_sinir = int(max_steps) if int(max_steps) > 0 else MUTLAK_ADIM
+        for step_index in range(max(1, etkin_sinir)):
             if self._cancel.is_set():
                 run.ok = False
                 run.reason = "iptal edildi"
@@ -1715,6 +1738,12 @@ class AgentLoop:
             # ⚠ Periyodik ÖZ-YANSIMA (bounded: en fazla max_reflect kez)
             self._yansima_kapisi(task, run, messages)
 
+            # ⚠ FAZ RAPORU: her FAZ_ADIM adımda durum ver, sonra devam et
+            try:
+                self._faz_raporu(task, run, messages)
+            except Exception as exc:
+                logger.debug(f"Faz raporu atlandı: {exc}")
+
             # ⚠ BAĞLAM SIKIŞTIRMA: uzun çalışmada eski mesajları özete indir
             try:
                 self._baglami_sikistir(messages)
@@ -1728,7 +1757,7 @@ class AgentLoop:
                 ))
 
         else:
-            run.reason = f"adım sınırı ({max_steps})"
+            run.reason = f"güvenlik tavanı ({etkin_sinir} adım)"
 
         if not final_text:
             # Çalışma **hatayla** bittiyse "adım sınırına ulaştım" demek
@@ -2194,6 +2223,39 @@ class AgentLoop:
             "user",
             "HİYERARŞİK PLAN (bu sırayı izle; gerekirse gerekçesiyle sap):\n"
             + sonuc.ozet()))
+
+    def _faz_raporu(self, task: str, run: AgentRun,
+                    messages: List[LLMMessage]) -> None:
+        """
+        Her `FAZ_ADIM` araç adımında **durum raporu** üretir ve devam eder.
+
+        ⚠ Kullanıcı isteği: ajan işi fazlara bölüyor; her faz sonunda ne
+        yaptığını, neyin kaldığını bildirip **kendiliğinden** devam etmeli.
+        Rapor, modele "şu ana kadar" özeti verir; kullanıcıya arayüzde
+        `plan` adımı olarak görünür.
+        """
+        if self.FAZ_ADIM <= 0:
+            return
+        arac_adimi = sum(1 for a in run.steps if a.kind == "tool")
+        if arac_adimi == 0 or arac_adimi % self.FAZ_ADIM != 0:
+            return
+        ozet = self._hedef.ozet(sinir=900) if self._hedef is not None else ""
+        satirlar = [f"FAZ DURUMU — {arac_adimi} araç adımı tamamlandı."]
+        if ozet:
+            satirlar.append(ozet)
+        # ⚠ Hatalar ayrı alanda tutulmaz: adım kaydından türetilir
+        hatalar = [a.text[:90] for a in run.steps
+                   if a.kind in ("error", "recovery") and a.text][-3:]
+        if hatalar:
+            satirlar.append("Son hatalar: " + " · ".join(hatalar))
+        satirlar.append(
+            "Devam et. Kalan işi sırayla yap; faz bittiğinde kısa durum ver.")
+        messages.append(LLMMessage("user", "\n".join(satirlar)))
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="plan", ok=True,
+            text=f"faz raporu · {arac_adimi} adım · "
+                 f"{len(self._hedef.facts) if self._hedef else 0} olgu"))
+        self._counter["faz_raporu"] = self._counter.get("faz_raporu", 0) + 1
 
     def _baglami_sikistir(self, messages: List[LLMMessage]) -> None:
         """

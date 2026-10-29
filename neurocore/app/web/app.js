@@ -1101,11 +1101,76 @@ const Chat = {
   files: new Set(),
 
   init() {
+    // MCP düğmeleri
+    const mcpEkleBtn = $('mcp-add');
+    if (mcpEkleBtn) {
+      mcpEkleBtn.onclick = async () => {
+        const ad = ($('mcp-ad').value || '').trim();
+        const komut = ($('mcp-komut').value || '').trim();
+        const args = ($('mcp-args').value || '').trim();
+        const sonuc = await api('/api/mcp', {
+          method: 'POST',
+          body: JSON.stringify({ ad, komut, args }),
+        });
+        $('mcp-help').textContent = sonuc && sonuc.ok
+          ? `${ad} eklendi` : `hata: ${(sonuc && sonuc.error) || '?'}`;
+        this.mcpRefresh();
+      };
+    }
+    ['blender', 'godot'].forEach((preset) => {
+      const btn = $(`mcp-preset-${preset}`);
+      if (!btn) return;
+      btn.onclick = async () => {
+        const sonuc = await api('/api/mcp', {
+          method: 'POST', body: JSON.stringify({ preset }),
+        });
+        $('mcp-help').textContent = sonuc && sonuc.ok
+          ? `${preset} şablonu eklendi` : `hata: ${(sonuc && sonuc.error) || '?'}`;
+        this.mcpRefresh();
+      };
+    });
+    if ($('mcp-refresh')) $('mcp-refresh').onclick = () => this.mcpRefresh();
+
     $('btn-send').onclick = () => this.send();
     $('btn-stop').onclick = () => this.cancel();
     const input = $('input');
+    // ⚠ Geçmiş gezinme: ↑/↓ ile gönderilmiş önceki mesajlar arasında dolaş.
+    //    Kural: imleç metnin başında/sonunda değilse ok tuşu normal çalışır
+    //    (satır içi düzenlemeyi bozmamak için).
+    this.gecmisIndeks = -1;
+    this.gecmisTaslak = '';
     input.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.send(); }
+      if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.send(); return; }
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+      const gecmis = this.gecmis();
+      if (!gecmis.length) return;
+      const imlecSonda = input.selectionStart === input.value.length;
+      const imlecBasta = input.selectionStart === 0;
+      if (this.gecmisIndeks === -1) {
+        if (event.key === 'ArrowDown') return;
+        if (!imlecSonda && input.value) return;      // düzenleme sürüyor
+        this.gecmisTaslak = input.value;
+        this.gecmisIndeks = gecmis.length - 1;
+      } else if (event.key === 'ArrowUp') {
+        if (this.gecmisIndeks <= 0) return;
+        this.gecmisIndeks -= 1;
+      } else {
+        if (!imlecBasta && input.value) return;
+        if (this.gecmisIndeks < gecmis.length - 1) {
+          this.gecmisIndeks += 1;
+        } else {
+          // listenin sonuna geldik → taslağa dön
+          this.gecmisIndeks = -1;
+          input.value = this.gecmisTaslak || '';
+          input.dispatchEvent(new Event('input'));
+          event.preventDefault();
+          return;
+        }
+      }
+      event.preventDefault();
+      input.value = gecmis[this.gecmisIndeks] || '';
+      input.dispatchEvent(new Event('input'));
+      input.setSelectionRange(input.value.length, input.value.length);
     });
     input.addEventListener('input', () => {
       input.style.height = 'auto';
@@ -1270,10 +1335,12 @@ const Chat = {
     const pill = $('steps-pill');
     if (!pill) return;
     const used = this.steps.filter((item) => item.kind !== 'answer').length;
-    const limit = this.stepLimit || 24;
+    // ⚠ Adım sınırı artık varsayılan olarak YOK (0 = sınırsız):
+    // sayaç "adım N" gösterir; sunucudan sınır gelirse "N / M" gösterilir.
+    const limit = Number(this.stepLimit || 0);
     pill.hidden = false;
-    pill.textContent = `adım ${used} / ${limit}`;
-    pill.classList.toggle('quota-low', used >= limit - 3);
+    pill.textContent = limit > 0 ? `adım ${used} / ${limit}` : `adım ${used}`;
+    pill.classList.toggle('quota-low', limit > 0 && used >= limit - 3);
     pill.title = used >= limit - 3
       ? 'Adım sınırına yaklaşıldı. Sınır dolduğunda ajan durur ve o ana '
         + 'kadar yaptıklarını özetler. Görevi daha küçük parçalara bölmek '
@@ -1286,11 +1353,107 @@ const Chat = {
     transcript.scrollTop = transcript.scrollHeight;
   },
 
+  /**
+   * Bu sohbette gönderilmiş kullanıcı mesajları (en eski → en yeni).
+   * Kaynak: localStorage + sunucudan gelen sohbet geçmişi.
+   */
+  /** HTML kaçışı (kullanıcı/sunucu metni güvenli basılsın). */
+  esc(metin) {
+    return String(metin == null ? '' : metin)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  },
+
+  gecmis() {
+    const anahtar = `neurocore_gecmis_${this.chatId || 'genel'}`;
+    let kayit = [];
+    try {
+      kayit = JSON.parse(localStorage.getItem(anahtar) || '[]');
+    } catch (err) {
+      kayit = [];
+    }
+    return Array.isArray(kayit) ? kayit.slice(-50) : [];
+  },
+
+  gecmiseEkle(metin) {
+    const temiz = String(metin || '').trim();
+    if (!temiz) return;
+    const anahtar = `neurocore_gecmis_${this.chatId || 'genel'}`;
+    const kayit = this.gecmis();
+    if (kayit[kayit.length - 1] === temiz) return;      // tekrarı yazma
+    kayit.push(temiz);
+    try {
+      localStorage.setItem(anahtar, JSON.stringify(kayit.slice(-50)));
+    } catch (err) {
+      /* kota dolu — geçmiş kritik değil */
+    }
+    this.gecmisIndeks = -1;
+  },
+
+  // ─── MCP bağlantıları ─────────────────────────────────────────────
+  mcpCiz(veri) {
+    const kap = $('mcp-list');
+    if (!kap) return;
+    const sunucular = (veri && veri.sunucular) || [];
+    if (!sunucular.length) {
+      kap.innerHTML = '<div class="empty-hint">Henüz MCP bağlantısı yok.</div>';
+      return;
+    }
+    kap.innerHTML = sunucular.map((s) => {
+      const durum = s.bagli
+        ? `bağlı · ${s.arac_sayisi} araç`
+        : (s.hata ? `hata: ${this.esc(s.hata)}` : 'bağlı değil');
+      const araclar = (s.araclar || []).slice(0, 6).join(', ');
+      return `<div class="mcp-row">
+        <div><strong>${this.esc(s.ad)}</strong> — <span class="muted">${durum}</span>
+        ${araclar ? `<div class="settings-help">${this.esc(araclar)}</div>` : ''}</div>
+        <div class="settings-actions">
+          <button class="btn btn-ghost" data-mcp-test="${this.esc(s.ad)}">Sına</button>
+          <button class="btn btn-ghost" data-mcp-del="${this.esc(s.ad)}">Kaldır</button>
+        </div>
+      </div>`;
+    }).join('');
+    kap.querySelectorAll('[data-mcp-test]').forEach((b) => {
+      b.onclick = () => this.mcpDene(b.dataset.mcpTest);
+    });
+    kap.querySelectorAll('[data-mcp-del]').forEach((b) => {
+      b.onclick = () => this.mcpSil(b.dataset.mcpDel);
+    });
+  },
+
+  async mcpRefresh() {
+    const sonuc = await api('/api/mcp');
+    if (sonuc && sonuc.ok) this.mcpCiz(sonuc);
+  },
+
+  async mcpDene(ad) {
+    const yardim = $('mcp-help');
+    if (yardim) yardim.textContent = `${ad} sınanıyor…`;
+    const sonuc = await api('/api/mcp/test', {
+      method: 'POST', body: JSON.stringify({ ad }),
+    });
+    if (yardim) {
+      yardim.textContent = sonuc && sonuc.ok
+        ? `${ad}: bağlı · ${sonuc.arac_sayisi} araç (${(sonuc.araclar || []).join(', ')})`
+        : `${ad}: ${(sonuc && (sonuc.hata || sonuc.error)) || 'bağlanamadı'}`;
+    }
+    this.mcpRefresh();
+  },
+
+  async mcpSil(ad) {
+    await api('/api/mcp/delete', { method: 'POST', body: JSON.stringify({ ad }) });
+    this.mcpRefresh();
+  },
+
   async send() {
     const input = $('input');
     const message = input.value.trim();
     if (!message || this.busy) return;
 
+    // ⚠ ↑/↓ geçmişi: gönderilen mesaj kaydedilir, gezinme sıfırlanır
+    this.gecmiseEkle(message);
+    this.gecmisIndeks = -1;
+    this.gecmisTaslak = '';
     this.addMessage('user', message);
     input.value = '';
     input.style.height = 'auto';
@@ -1549,7 +1712,8 @@ const Socket = {
         break;
       case 'agent.run_started':
         Chat.steps = [];
-        Chat.stepLimit = data.max_steps || 24;
+        // ⚠ 0 = sınırsız: '||' 0'ı yutuyordu, ?? kullanılır
+    Chat.stepLimit = data.max_steps ?? 0;
         Chat.updateStepCounter();
         break;
       case 'agent.step':

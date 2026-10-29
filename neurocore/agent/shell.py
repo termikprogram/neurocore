@@ -133,6 +133,50 @@ _COMPILED_RULES = [
 ]
 
 
+#: Çalışma alanı dışına çıkabilen komut kalıpları
+_KAPSAM_KALIPLARI = (
+    r"\bcd\s+(?P<yol>[^\s;|&]+)",
+    r"\bset-location\s+(?P<yol>[^\s;|&]+)",
+    r"\bpushd\s+(?P<yol>[^\s;|&]+)",
+    r"\bchdir\s+(?P<yol>[^\s;|&]+)",
+)
+
+
+def _kapsam_denetle(command: str, kok: str) -> str:
+    """
+    Komutun çalışma alanı **dışına** çıkıp çıkmadığını denetler.
+
+    ⚠ ÖLÇÜLEN DAVRANIŞ: ajan seçilen klasörün üst dizinlerinde işlem
+    yapabiliyordu (`cd ..`, `Set-Location C:\\...`). Dosya araçları
+    (`code.*`) zaten kum havuzunda; kabuk bu açığı kapatır.
+
+    Returns:
+        Hata metni (boş = sorun yok).
+    """
+    import re as _re
+    from pathlib import Path as _P
+
+    kok_yol = _P(kok).expanduser().resolve()
+    for kalip in _KAPSAM_KALIPLARI:
+        for eslesme in _re.finditer(kalip, command or "", _re.IGNORECASE):
+            hedef = (eslesme.group("yol") or "").strip().strip('"\'')
+            if not hedef or hedef.startswith("-"):
+                continue
+            try:
+                aday = _P(hedef)
+                if not aday.is_absolute():
+                    aday = kok_yol / aday
+                aday = aday.resolve()
+            except OSError:
+                continue
+            try:
+                aday.relative_to(kok_yol)
+            except ValueError:
+                return (f"güvenlik: çalışma alanı dışına çıkılamaz — "
+                        f"{aday} (kök: {kok_yol})")
+    return ""
+
+
 def classify_command(command: str) -> Tuple[CommandClass, str]:
     """
     Komutu güvenlik kategorisine ayırır.
@@ -604,6 +648,15 @@ class ShellSession:
         """
         result = CommandResult(command=command, session_id=self._session_id,
                                shell=self.shell)
+        # ⚠ Kapsam denetimi: çalışma alanı dışına çıkan cd engellenir
+        kok = str(getattr(self, "_workspace", "") or os.getcwd())
+        kapsam_hatasi = _kapsam_denetle(command, kok)
+        if kapsam_hatasi:
+            result.ok = False
+            result.error = kapsam_hatasi
+            result.exit_code = 126
+            return result
+
         kind, reason = classify_command(command)
         result.command_class = kind.value
 
