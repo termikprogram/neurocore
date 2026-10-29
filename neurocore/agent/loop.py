@@ -2646,6 +2646,9 @@ class AgentLoop:
         if eksik:
             self._counter["ortam_eksik"] = self._counter.get(
                 "ortam_eksik", 0) + len(eksik)
+        logger.info(f"Ortam denetimi: {rapor['sistem'].get('os')} · "
+                    f"araç={len(rapor.get('araclar') or [])} · "
+                    f"eksik={len(eksik)}")
         self._add_step(run, AgentStep(
             index=len(run.steps), kind="plan", ok=not eksik,
             text=(f"ortam: {rapor['sistem'].get('os')} · "
