@@ -40,7 +40,7 @@
     "Arayüz dili": "Interface language",
     "Türkçe": "Turkish",
     "İngilizce": "English",
-    "Dil değişince sayfa yenilenir.": "The page reloads when the language changes.",
+    "Değişiklik hemen uygulanır.": "The change applies immediately.",
     "Vazgeç": "Cancel",
     "Tamam": "OK",
     "Sil": "Delete",
@@ -169,7 +169,13 @@
     while (yuruyucu.nextNode()) {
       const d = yuruyucu.currentNode;
       const yeni = cevirMetin(d.nodeValue || "");
-      if (yeni !== d.nodeValue) { d.nodeValue = yeni; sayi++; }
+      if (yeni !== d.nodeValue) {
+        // ⚠ Özgün metin düğümde saklanır: dil değişimi sayfa yenilemeden
+        // geri alınabilsin (Türkçe kaynak metinler).
+        if (d.__ncOrijinal === undefined) d.__ncOrijinal = d.nodeValue;
+        d.nodeValue = yeni;
+        sayi++;
+      }
     }
     // öznitelikler
     kok.querySelectorAll?.("[title], [placeholder], [aria-label]").forEach((el) => {
@@ -177,7 +183,12 @@
         const v = el.getAttribute(ad);
         if (!v) continue;
         const yeni = cevirMetin(v);
-        if (yeni !== v) { el.setAttribute(ad, yeni); sayi++; }
+        if (yeni !== v) {
+          const anahtar = `__ncOrijinal_${ad}`;
+          if (el[anahtar] === undefined) el[anahtar] = v;
+          el.setAttribute(ad, yeni);
+          sayi++;
+        }
       }
     });
     return sayi;
@@ -200,26 +211,90 @@
   //: Arayüz dilini değiştirir (sayfa yenilenir: kaynak metinler Türkçe)
   window.NC_DIL = {
     sec: dilSec,
+    /** Dili hemen uygular — **sayfa yenilenmez**. */
     ayarla(dil) {
       const temiz = dil === "tr" ? "tr" : "en";
       try { localStorage.setItem("neurocore_dil", temiz); } catch (e) { /* yok */ }
-      location.reload();
+      return uygula(temiz);
     },
+    aktif: () => aktifDil,
   };
 
+  /** Çevrilmiş metinleri özgün (Türkçe) hâline döndürür. */
+  function geriAl(kok) {
+    const yuruyucu = document.createTreeWalker(kok, NodeFilter.SHOW_TEXT, null);
+    let sayi = 0;
+    while (yuruyucu.nextNode()) {
+      const d = yuruyucu.currentNode;
+      if (d.__ncOrijinal !== undefined) {
+        d.nodeValue = d.__ncOrijinal;
+        delete d.__ncOrijinal;
+        sayi++;
+      }
+    }
+    kok.querySelectorAll?.("*").forEach((el) => {
+      for (const ad of ["title", "placeholder", "aria-label"]) {
+        const anahtar = `__ncOrijinal_${ad}`;
+        if (el[anahtar] !== undefined) {
+          el.setAttribute(ad, el[anahtar]);
+          delete el[anahtar];
+          sayi++;
+        }
+      }
+    });
+    return sayi;
+  }
+
+  let gozcu = null;
+  let aktifDil = "en";
+
+  /** Dili **sayfa yenilemeden** uygular. */
+  function uygula(dil) {
+    const hedef = dil === "tr" ? "tr" : "en";
+    geriAl(document.body);              // önce Türkçe kaynağa dön
+    aktifDil = hedef;
+    if (hedef === "tr") {
+      if (gozcu) { gozcu.disconnect(); gozcu = null; }
+      return 0;
+    }
+    const sayi = dugumleriCevir(document.body);
+    if (!gozcu) {
+      gozcu = new MutationObserver(() => {
+        if (gozcu._zaman) return;
+        gozcu._zaman = setTimeout(() => {
+          gozcu._zaman = null;
+          if (aktifDil === "en") dugumleriCevir(document.body);
+        }, 200);
+      });
+      gozcu.observe(document.body, { childList: true, subtree: true });
+    }
+    return sayi;
+  }
+
   function basla() {
-    if (dilSec() !== "en") return;
-    let toplam = dugumleriCevir(document.body);
+    if (dilSec() !== "en") { aktifDil = "tr"; return; }
+    aktifDil = "en";
+    const toplam = dugumleriCevir(document.body);
     // Dinamik içerik: yeni düğümleri kısıtlı sıklıkta çevir
-    const gozcu = new MutationObserver(() => {
+    gozcu = new MutationObserver(() => {
       if (gozcu._zaman) return;
       gozcu._zaman = setTimeout(() => {
         gozcu._zaman = null;
-        dugumleriCevir(document.body);
+        if (aktifDil === "en") dugumleriCevir(document.body);
       }, 200);
     });
     gozcu.observe(document.body, { childList: true, subtree: true });
   }
+
+  // ⚠ TEST KANCASI: `?dil-testi=tr|en` → sayfa yüklendikten sonra dili
+  // **yenilemeden** değiştirir. Yalnız doğrulama/otomasyon içindir; normal
+  // kullanımda dil seçimi Ayarlar'dan yapılır.
+  (function testKancasi() {
+    const p = new URLSearchParams(location.search);
+    const hedef = p.get("dil-testi");
+    if (hedef !== "tr" && hedef !== "en") return;
+    setTimeout(() => uygula(hedef), 800);
+  })();
 
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () => setTimeout(basla, 60));

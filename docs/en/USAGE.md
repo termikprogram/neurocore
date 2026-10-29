@@ -14,8 +14,8 @@ python -m neurocore.app        # same thing
 The browser opens at `http://127.0.0.1:<port>` (next free port if taken).
 
 **The interface opens in English.** Switch languages from
-**Settings → Language** (English / Türkçe); the page reloads and the choice is
-remembered. `?lang=tr` / `?lang=en` overrides it for one visit.
+**Settings → Language** (English / Türkçe); the change applies **immediately**
+(no reload) and is remembered. `?lang=tr` / `?lang=en` overrides it for one visit.
 
 ### Options
 

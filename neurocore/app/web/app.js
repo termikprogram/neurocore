@@ -1106,6 +1106,8 @@ const Chat = {
     if (dilSecici) {
       dilSecici.value = (window.NC_DIL && window.NC_DIL.sec()) || 'en';
       dilSecici.onchange = () => {
+        // ⚠ Sayfa yenilenmez: i18n katmanı özgün metinleri geri yükleyip
+        // yeni dili hemen uygular.
         if (window.NC_DIL) window.NC_DIL.ayarla(dilSecici.value);
       };
     }
