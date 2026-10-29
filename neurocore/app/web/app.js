@@ -2107,7 +2107,13 @@ const State = {
         document.querySelectorAll('.side-tab').forEach((t) => t.classList.remove('active'));
         document.querySelectorAll('.side-view').forEach((v) => v.classList.remove('active'));
         tab.classList.add('active');
-        $(`view-${tab.dataset.tab}`).classList.add('active');
+        // ⚠ ÖNCE tüm panelleri kapat: aksi hâlde önceki panel görünür
+        // kalıyordu (ölçüldü: Proje sekmesinde "No files changed" satırı).
+        document.querySelectorAll('.side-view').forEach((v) => {
+          v.classList.remove('active');
+        });
+        const hedefPanel = $(`view-${tab.dataset.tab}`);
+        if (hedefPanel) hedefPanel.classList.add('active');
         // "Dosyalar" sekmesi çalışma alanı ağacını gösterir; ilk açılışta
         // kökü yükle.
         if (tab.dataset.tab === 'files') Tree.reload();

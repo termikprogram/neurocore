@@ -94,6 +94,7 @@
     [/^havuz —$/, () => "pool —"],
   ];
 
+
   // ⚠ ÖLÇÜLDÜ: kaynak metinler sözlüktekiyle **birebir** aynı değil —
   // "Proje haritasını çıkar" (belirtme hâli), "Henüz bir işlem yok." (fazladan
   // "bir"), placeholder'da `…` (U+2026) ve satır içi çoklu boşluk var.
@@ -104,6 +105,91 @@
     "Henüz kayıt yok.": "No records yet.",
     "Henüz tur yok.": "No rounds yet.",
     "Testleri çalıştır ve düzelt": "Run and fix tests",
+  });
+
+
+  // ⚠ Dinamik üretilen panel metinleri (app.js şablonları): sözlükte
+  // olmadıkları için İngilizce modda Türkçe kalıyorlardı.
+  Object.assign(SOZLUK, {
+    // proje paneli
+    "Proje": "Project",
+    "Mimari": "Architecture",
+    "Çalıştırma": "How to run",
+    "Kaldığın yer": "Where you left off",
+    "Kaldığı yerden devam et": "Continue from here",
+    "henüz adım yok": "no steps yet",
+    "komut bulunamadı": "no command found",
+    "yığın": "stack",
+    "giriş": "entry",
+    "dosya": "files",
+    "adım": "steps",
+    "ölçüt": "criterion",
+    // puzzle / mcp panelleri
+    "Bağlantı ekle": "Add connection",
+    "Blender şablonu": "Blender template",
+    "Godot şablonu": "Godot template",
+    "Sına": "Test",
+    "bağlı": "connected",
+    "bağlı değil": "not connected",
+    "araç": "tools",
+    "soru": "questions",
+    // durum
+    "hazır": "ready",
+    "kapalı": "closed",
+    "varsayılan": "default",
+    "yükleniyor…": "loading…",
+    "(başlıksız)": "(untitled)",
+    "(boş dosya)": "(empty file)",
+    "(boş klasör)": "(empty folder)",
+    "(alt klasör yok)": "(no subfolder)",
+    "(yanıt üretilmedi)": "(no answer produced)",
+    "(ikili dosya — metin olarak gösterilemez)":
+      "(binary file — cannot show as text)",
+    "(çalışma alanı)": "(workspace)",
+    "— varsayılan —": "— default —",
+    "dosya değişti": "files changed",
+    // paneller
+    "Araç çağrısı kaydı boş.": "No tool calls recorded.",
+    "Henüz kayıt yok. Bir görev çalıştırın.": "No records yet. Run a task.",
+    "Son çalışmalar:": "Recent runs:",
+    "Henüz sohbet yok.": "No chats yet.",
+    "Henüz MCP bağlantısı yok.": "No MCP connections yet.",
+    "Henüz tur yok.": "No rounds yet.",
+    // öğrenim
+    "Öğrenme": "Learning",
+    "Şimdi eğit": "Train now",
+    "Yenile": "Refresh",
+    "Kendi Kendine Geliştirme": "Self-improvement",
+    "Şimdi öğren": "Learn now",
+    "Konuları kaydet": "Save topics",
+    "öğretici": "instructive",
+    "başarılı": "successful",
+    "eşik": "threshold",
+    "Üretim eşiğine": "To the production threshold",
+    "MCP Bağlantıları": "MCP connections",
+    "Arayüz dili": "Interface language",
+  });
+
+  Object.assign(SOZLUK, {
+    // özerklik bandı (sunucudan gelir, düz metin)
+    "Hiçbir değişiklik yapılmaz. Yalnızca okuma, arama, analiz ve ekran görüntüsü. En güvenli seçenek.":
+      "No changes are made. Read, search, analysis and screenshots only. Safest option.",
+    "Yazma, çalıştırma ve yıkıcı işlemler onay ister. Okuma serbest. Önerilen varsayılan.":
+      "Writes, commands and destructive operations require approval. Reads are free. Recommended default.",
+    "Yazma, test ve derleme serbest; silme, sistem ayarı ve proje dışına yazma onay ister.":
+      "Writes, tests and builds are free; deleting, system settings and writing outside the project require approval.",
+    "Her şey serbest; yalnızca kum havuzu sınırları (proje dışı yollar, yıkıcı komut kalıpları) geçerlidir. Dikkatli kullanın.":
+      "Everything is allowed; only sandbox limits apply (paths outside the project, destructive command patterns). Use with care.",
+    // durum sözcükleri
+    "tamamlandı": "completed",
+    "devam ediyor": "in progress",
+    "bekliyor": "pending",
+    "revize": "needs revision",
+    "adam": "step",
+    "çalışıyor": "running",
+    "durduruldu": "stopped",
+    "hata": "error",
+    "onay bekleniyor": "waiting for approval",
   });
 
   function normal(metin) {
@@ -140,12 +226,19 @@
     // ⚠ Alt-dize: arayüz metinleri sık sık cümle içinde geçiyor
     // (ör. "genel sohbet (klasör yok)", "0 mesaj", uyarı bandı).
     let sonuc = metin;
+    // ⚠ ÖLÇÜLEN HATA: alt-dize eşleşmesi kelime ortasını da bozuyordu
+    // ("Proje" → "TestProjectddddtcts"). Bu yüzden **kelime sınırı** kullanılır:
+    // kısa anahtarlar (≤ 12) yalnız tam kelime olarak değişir.
     for (const anahtar of ANAHTARLAR) {
       if (anahtar.length < 4) continue;
-      // ⚠ Boşluk esnek: kaynakta çoklu boşluk/satır sonu olabilir
+      const govde = anahtar
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/ /g, "\\s+");
+      const sinir = anahtar.length <= 12;
       const kalip = new RegExp(
-        anahtar.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+"),
-        "g");
+        (sinir ? "(?<![\\p{L}\\p{N}_])" : "") + govde
+          + (sinir ? "(?![\\p{L}\\p{N}_])" : ""),
+        "gu");
       if (kalip.test(sonuc)) {
         sonuc = sonuc.replace(kalip, NORMAL_SOZLUK.get(anahtar));
       }
