@@ -214,6 +214,24 @@ Kullanıcı hangi dilde yazdıysa **o dilde** yanıtla. Türkçe soruya Türkçe
 onları **olduğu gibi** bırak. Dil belirsizse (ör. tek sözcük) son kullanılan
 dili sürdür.
 
+## Ortam ve bağımlılık kontrolü (zorunlu)
+Plan kurduktan **sonra**, işe başlamadan önce ortamı denetle:
+- İşletim sistemi ne? Hangi paket yöneticisi var (winget/apt/brew)?
+- Gereken araçlar kurulu mu: python/pip, node/npm, **godot (+ export şablonları)**,
+  blender, dotnet, git, uv?
+- Proje bağımlılıkları: `package.json` → `node_modules` var mı ·
+  `requirements.txt` → paketler içe aktarılabiliyor mu?
+- Sürüm uyuşmazlığı varsa **hangi sürüm** gerektiğini söyle.
+- Eksik varsa: **tek satır kurulum komutu** ver ve kullanıcıya **sor**;
+  kendiliğinden kurma.
+
+Bilinen tuzaklar (ölçüldü):
+- Godot web export: `export_presets.cfg` yoksa export **imkânsız**; dosya
+  **BOM'suz UTF-8** olmalı (BOM → "Invalid export preset name").
+- Godot hedef klasörü **kendisi oluşturmaz**: `build/web` önce açılmalı.
+- Godot'ta global sınıf önbelleği yoksa `Identifier "Config" not declared`
+  hatası çıkar → `--import` çalıştır.
+
 ## Proje teslimi (zorunlu)
 Bir **proje** oluşturduysan veya bitirdiysen şu üçünü bırak:
 1. `README.md` — ne olduğu, gereksinimler, kurulum, çalıştırma, port, testler.
@@ -788,6 +806,8 @@ class AgentLoop:
         self._kontrol: Any = None
         self._kontrol_yol: Any = None
         self._kontrol_arsiv: Any = None
+        #: ⚠ Son ortam ön denetimi (OS + araçlar + eksik paketler)
+        self._ortam: Dict[str, Any] = {}
         #: ⚠ A) Walkthrough cevabı bekleniyor mu (çalışma durur)
         self._puzzle_bekle = False
         #: B) Dinamik genişletme için planlayıcı (tembel kurulur)
@@ -1542,6 +1562,12 @@ class AgentLoop:
             self._puzzle_kur(task, run, messages)
         except Exception as exc:
             logger.debug(f"Puzzle atlandı: {exc}")
+
+        # ⚠ 1.7) ORTAM ÖN DENETİMİ: OS + araçlar + paketler (eksikse söyle)
+        try:
+            self._ortam_denetle(run, messages)
+        except Exception as exc:
+            logger.debug(f"Ortam denetimi atlandı: {exc}")
 
         # ⚠ 2) HİYERARŞİK PLAN: uzun görevlerde hedef → alt hedef → adım
         try:
@@ -2590,6 +2616,42 @@ class AgentLoop:
             satirlar.append(f"  plan: {pz.get('parca')} parça · "
                             f"{pz.get('tamamlanan')} tamam · aktif {pz.get('aktif')}")
         messages.append(LLMMessage("user", "\n".join(satirlar)))
+
+    def _ortam_denetle(self, run: AgentRun,
+                       messages: List[LLMMessage]) -> None:
+        """
+        ⚠ Plan sonrası **ortam ön denetimi**: OS + gerekli araçlar + paketler.
+
+        Kullanıcı sorusu: "plan yaptıktan sonra işletim sistemine göre
+        kullanacağı araçların yüklü olup olmadığını, eksik paketleri,
+        sürüm uyuşmazlığını kontrol ediyor mu?" — bu adım onu yapar ve
+        modele **OS'e uygun kurulum komutu** verir.
+        """
+        if not getattr(self, "_workspace", None):
+            return
+        try:
+            kok = Path(self._workspace).resolve()
+            if kok == Path.cwd().resolve() and not _os.environ.get("NC_ENVCHECK"):
+                return              # uygulama kökünde denetim gereksiz
+            from neurocore.agent.envcheck import denetle, metin
+
+            rapor = denetle(kok, run.task)
+        except Exception as exc:
+            logger.debug(f"Ortam denetimi atlandı: {exc}")
+            return
+        self._ortam = rapor
+        self._counter["ortam_denetimi"] = self._counter.get(
+            "ortam_denetimi", 0) + 1
+        eksik = rapor.get("eksik") or []
+        if eksik:
+            self._counter["ortam_eksik"] = self._counter.get(
+                "ortam_eksik", 0) + len(eksik)
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="plan", ok=not eksik,
+            text=(f"ortam: {rapor['sistem'].get('os')} · "
+                  f"{len(eksik)} eksik" if eksik
+                  else f"ortam hazır · {rapor['sistem'].get('os')}")))
+        messages.append(LLMMessage("user", metin(rapor)))
 
     # ─── Kontrol noktası (kaldığı yerden devam) ────────────────────────
 
