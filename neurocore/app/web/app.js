@@ -1456,6 +1456,60 @@ const Chat = {
     this.mcpRefresh();
   },
 
+  // ─── Puzzle (iç içe fazlar) ───────────────────────────────────────
+  /** Ağacı özyinelemeli çizer; her parçaya revizyon düğmesi koyar. */
+  puzzleDugum(parca) {
+    if (!parca) return '';
+    const ikon = { tamam: '✓', aktif: '▶', revize: '✎' }[parca.durum] || '·';
+    const sinif = `puzzle-node ${parca.durum || 'bekliyor'}`;
+    const sorular = (parca.sorular || []).map((s) =>
+      `<div class="puzzle-q">? ${this.esc(s)}</div>`).join('');
+    const cevap = parca.cevap
+      ? `<div class="puzzle-a">↳ ${this.esc(parca.cevap)}</div>` : '';
+    const not = parca.not
+      ? `<div class="puzzle-not">✎ ${this.esc(parca.not)}</div>` : '';
+    const cocuklar = (parca.cocuklar || []).map((c) => this.puzzleDugum(c)).join('');
+    return `<div class="${sinif}">
+      <div class="puzzle-row">
+        <span class="puzzle-ikon">${ikon}</span>
+        <span class="puzzle-id">[${this.esc(parca.id)}]</span>
+        <span class="puzzle-baslik">${this.esc(parca.baslik)}</span>
+        <button class="btn btn-ghost puzzle-btn" data-puzzle-revize="${this.esc(parca.id)}"
+                title="Bu parçayı değiştir">✎</button>
+      </div>
+      ${parca.olcut ? `<div class="puzzle-olcut">ölçüt: ${this.esc(parca.olcut)}</div>` : ''}
+      ${sorular}${cevap}${not}
+      ${cocuklar ? `<div class="puzzle-cocuklar">${cocuklar}</div>` : ''}
+    </div>`;
+  },
+
+  async puzzleYenile() {
+    const kap = $('puzzle-tree');
+    if (!kap) return;
+    const veri = await api('/api/puzzle');
+    const bos = $('puzzle-empty');
+    if (!veri || !veri.ok || !veri.kok) {
+      kap.innerHTML = '';
+      if (bos) bos.hidden = false;
+      return;
+    }
+    if (bos) bos.hidden = true;
+    kap.innerHTML = this.puzzleDugum(veri.kok);
+    kap.querySelectorAll('[data-puzzle-revize]').forEach((b) => {
+      b.onclick = () => this.puzzleRevize(b.dataset.puzzleRevize);
+    });
+  },
+
+  async puzzleRevize(kimlik) {
+    const not = prompt(`[${kimlik}] Bu parçada ne değişsin?`);
+    if (!not) return;
+    const sonuc = await api('/api/puzzle/revize', {
+      method: 'POST', body: JSON.stringify({ id: kimlik, not }),
+    });
+    if (sonuc && sonuc.ok) this.puzzleYenile();
+    else alert((sonuc && sonuc.error) || 'revizyon uygulanamadı');
+  },
+
   async send() {
     const input = $('input');
     const message = input.value.trim();
@@ -1485,8 +1539,11 @@ const Chat = {
         // kendi çalışma alanını kullanır.
         session_id: ChatList.activeId || '',
         plan_first: $('plan-first').checked,
-        max_steps: 24,
-        max_seconds: 900,
+        // ⚠ Adım sınırı YOK: 0 = sunucu tarafında sınırsız (güvenlik tavanı
+        // MUTLAK_ADIM=400). Ölçüldü: burada 24 gönderildiği için ajan sürekli
+        // "adım sınırına ulaştım" diyordu.
+        max_steps: 0,
+        max_seconds: 1800,
       }),
     });
 
@@ -1966,6 +2023,10 @@ const State = {
 
   init() {
     document.querySelectorAll('.side-tab').forEach((tab) => {
+      // ⚠ Puzzle sekmesine geçilince ağacı tazele
+      tab.addEventListener('click', () => {
+        if (tab.dataset.tab === 'puzzle') this.puzzleYenile();
+      });
       tab.onclick = () => {
         document.querySelectorAll('.side-tab').forEach((t) => t.classList.remove('active'));
         document.querySelectorAll('.side-view').forEach((v) => v.classList.remove('active'));

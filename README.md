@@ -40,6 +40,7 @@ you actually have free.
 | **Knowledge vault** | Obsidian-compatible markdown notes with frontmatter, searchable, used as retrieval source |
 | **Local model** | 211M-parameter model trained from scratch on your own notes (0.51 tokens/param so far) |
 | **Cognition layer** | error taxonomy, goal state, self-reflection, evidence verification (max 2 reflections, 1 correction) |
+| **Puzzle planner** | any task becomes **nested phases** (phases inside phases) with a **walkthrough** — clarifying questions at every phase; you can say "change this part" and the agent revises that piece |
 | **Learning** | successful work flows are stored as *playbooks* and suggested on similar tasks |
 | **Resource governance** | `spendable = total × (1 − current) × 0.90`, hard ceiling 85 % |
 | **Shared pool** | machines register over SSH and take dispatched jobs; local node takes over if a peer does not answer |

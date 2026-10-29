@@ -1033,3 +1033,21 @@ select:focus, input:focus, textarea:focus { border-color: var(--accent); }
   .layout { grid-template-columns: 1fr; }
   .side-pane { display: none; }
 }
+
+/* ── Puzzle: iç içe fazlar ─────────────────────────────────────────── */
+.puzzle-tree { display: flex; flex-direction: column; gap: 4px; padding: 4px 2px; }
+.puzzle-node { border-left: 2px solid rgba(255,255,255,.08); padding: 3px 0 3px 8px; }
+.puzzle-node.aktif { border-left-color: #58a6ff; }
+.puzzle-node.tamam { border-left-color: #3fb950; opacity: .82; }
+.puzzle-node.revize { border-left-color: #f0b429; }
+.puzzle-row { display: flex; align-items: center; gap: 6px; }
+.puzzle-ikon { width: 14px; text-align: center; opacity: .9; }
+.puzzle-id { font-family: ui-monospace, Consolas, monospace; font-size: 11px; opacity: .55; }
+.puzzle-baslik { flex: 1; font-size: 13px; }
+.puzzle-btn { padding: 0 6px; font-size: 12px; opacity: .55; }
+.puzzle-btn:hover { opacity: 1; }
+.puzzle-olcut { font-size: 11px; opacity: .55; margin-left: 26px; }
+.puzzle-q { font-size: 11px; margin-left: 26px; color: #f0b429; }
+.puzzle-a { font-size: 11px; margin-left: 26px; color: #3fb950; }
+.puzzle-not { font-size: 11px; margin-left: 26px; color: #f0b429; }
+.puzzle-cocuklar { margin-left: 14px; }

@@ -773,6 +773,10 @@ class AgentLoop:
         self._cog: Optional[CognitionLayer] = None
         #: Çalışma başına hedef durumu (olgular, denemeler, açık sorular)
         self._hedef: Optional[HedefDurumu] = None
+        #: ⚠ Puzzle: iç içe fazlar + walkthrough'lar (agent/puzzle.py)
+        self._puzzle: Any = None
+        #: Puzzle planlaması açık mı (NC_PUZZLE=0 kapatır)
+        self._puzzle_aktif = True
         #: ⚠ Playbook deposu (başarılı iş akışları → prosedür)
         self._playbooks: Optional[PlaybookStore] = None
         #: Hiyerarşik planlama açık mı (uzun görevlerde)
@@ -839,6 +843,10 @@ class AgentLoop:
                 self._cog = None
 
         # ⚠ Playbook deposu: <workspace>/.neurocore/playbooks.jsonl
+        # ⚠ Puzzle: iç içe fazlar + walkthrough (NC_PUZZLE=0 kapatır)
+        self._puzzle_aktif = (
+            _os.environ.get("NC_PUZZLE") or "1").strip() not in (
+                "0", "false", "off")
         self._hier_aktif = (_os.environ.get("NC_HIER") or "1").strip() not in (
             "0", "false", "off")
         try:
@@ -1475,6 +1483,12 @@ class AgentLoop:
         except Exception as exc:
             logger.debug(f"Playbook ipucu atlandı: {exc}")
 
+        # ⚠ 1.5) PUZZLE: iç içe fazlar + ilk walkthrough
+        try:
+            self._puzzle_kur(task, run, messages)
+        except Exception as exc:
+            logger.debug(f"Puzzle atlandı: {exc}")
+
         # ⚠ 2) HİYERARŞİK PLAN: uzun görevlerde hedef → alt hedef → adım
         try:
             self._hiyerarsi_ekle(task, run, messages)
@@ -2052,11 +2066,16 @@ class AgentLoop:
         return calls
 
     def _closing_summary(self, run: AgentRun) -> str:
-        """Adım sınırı/süre dolduğunda eldeki bilgiyle özet üretir."""
+        """Çalışma kesildiğinde (süre/güvenlik tavanı/hata) eldeki bilgiyle özet."""
         if not run.steps:
             return ("Görevi tamamlayamadım: hiçbir adım atılamadı. "
                     "İsteği daha somut biçimde yazabilir misiniz?")
-        lines = ["Adım sınırına ulaştım. Şu ana kadar yaptıklarım:", ""]
+        # ⚠ YANILTICI OLMAYAN DİL: adım sınırı varsayılan olarak yok; buraya
+        # düşüldüyse sebep süre, güvenlik tavanı veya hatadır.
+        neden = (getattr(run, "reason", "") or "").strip()
+        baslik = ("Çalışmayı burada noktaladım"
+                  + (f" ({neden})." if neden else "."))
+        lines = [baslik, "", "Şu ana kadar yaptıklarım:", ""]
         for step in run.steps:
             if step.kind == "tool":
                 mark = "✓" if step.ok else "✗"
@@ -2224,6 +2243,74 @@ class AgentLoop:
             "HİYERARŞİK PLAN (bu sırayı izle; gerekirse gerekçesiyle sap):\n"
             + sonuc.ozet()))
 
+    # ─── Puzzle (iç içe fazlar / walkthrough) ──────────────────────────
+
+    def _puzzle_kur(self, task: str, run: AgentRun,
+                    messages: List[LLMMessage]) -> None:
+        """
+        Görevi iç içe fazlara böler ve ilk **walkthrough**'u sunar.
+
+        ⚠ Kullanıcı isteği: plan fazlara ayrılsın, her faz başında durum ve
+        netleştirme soruları olsun, kullanıcı bir kısmı değiştirmek isterse
+        not düşülsün. Yapı keyfî derinlikte olabilir.
+        """
+        if not getattr(self, "_puzzle_aktif", True) or self._router is None:
+            return
+        if len(str(task or "").strip()) < 60:
+            return                      # kısa görevde ağaç kurmak gereksiz
+        try:
+            from neurocore.agent.puzzle import PuzzlePlanner
+
+            planner = PuzzlePlanner(self._router)
+            self._puzzle = planner.planla(task)
+        except Exception as exc:
+            logger.debug(f"Puzzle kurulamadı: {exc}")
+            self._puzzle = None
+            return
+        if self._puzzle is None or self._puzzle.sayi() <= 1:
+            return
+        self._counter["puzzle_kuruldu"] = self._counter.get(
+            "puzzle_kuruldu", 0) + 1
+        self._puzzle_mesaji(messages, run, ilk=True)
+
+    def _puzzle_mesaji(self, messages: List[LLMMessage], run: AgentRun,
+                       *, ilk: bool = False) -> None:
+        """Aktif parçayı + walkthrough sorularını mesaja ekler."""
+        if self._puzzle is None:
+            return
+        yaprak = self._puzzle.aktif_yaprak()
+        baslik = "PUZZLE PLANI" if ilk else "SIRADAKİ PARÇA"
+        satirlar = [f"{baslik}:", self._puzzle.ozet(sinir=900)]
+        if yaprak is not None:
+            satirlar.append(f"\nŞU AN: [{yaprak.id}] {yaprak.baslik}")
+            if yaprak.olcut:
+                satirlar.append(f"Tamamlanma ölçütü: {yaprak.olcut}")
+            if yaprak.sorular and not yaprak.cevap:
+                satirlar.append("Netleştirme soruları (bağlamdan cevapla, "
+                                "bilinmeyeni varsayım olarak işaretle):")
+                satirlar.extend(f"  - {soru}" for soru in yaprak.sorular)
+                self._add_step(run, AgentStep(
+                    index=len(run.steps), kind="walkthrough", ok=True,
+                    text=f"[{yaprak.id}] {len(yaprak.sorular)} soru: "
+                         + " | ".join(yaprak.sorular)[:200]))
+            if yaprak.not_:
+                satirlar.append(f"Kullanıcı revizyon notu: {yaprak.not_}")
+        messages.append(LLMMessage("user", "\n".join(satirlar)))
+
+    def _puzzle_ilerle(self, run: AgentRun, messages: List[LLMMessage]) -> None:
+        """Parçayı tamamlar ve sıradakini sunar (faz raporuyla birlikte)."""
+        if self._puzzle is None or self._puzzle.tamamlandi():
+            return
+        yeni = self._puzzle.ilerle()
+        if yeni is None:
+            self._add_step(run, AgentStep(
+                index=len(run.steps), kind="plan", ok=True,
+                text="puzzle tamamlandı"))
+            return
+        self._counter["puzzle_ilerleme"] = self._counter.get(
+            "puzzle_ilerleme", 0) + 1
+        self._puzzle_mesaji(messages, run)
+
     def _faz_raporu(self, task: str, run: AgentRun,
                     messages: List[LLMMessage]) -> None:
         """
@@ -2256,6 +2343,11 @@ class AgentLoop:
             text=f"faz raporu · {arac_adimi} adım · "
                  f"{len(self._hedef.facts) if self._hedef else 0} olgu"))
         self._counter["faz_raporu"] = self._counter.get("faz_raporu", 0) + 1
+        # ⚠ Faz raporuyla birlikte puzzle'da bir sonraki parçaya geç
+        try:
+            self._puzzle_ilerle(run, messages)
+        except Exception as exc:
+            logger.debug(f"Puzzle ilerlemedi: {exc}")
 
     def _baglami_sikistir(self, messages: List[LLMMessage]) -> None:
         """

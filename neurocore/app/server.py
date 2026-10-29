@@ -357,6 +357,53 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
 
     # ─── Durum ──────────────────────────────────────────────────────────
 
+    # ─── Puzzle (iç içe fazlar / walkthrough) ──────────────────────────
+
+    @app.get("/api/puzzle")
+    async def get_puzzle(request: Request) -> Any:
+        """Etkin çalışmanın iç içe plan ağacı (yoksa boş)."""
+        _check_origin(request)
+        loop = getattr(state, "loop", None)
+        puzzle = getattr(loop, "_puzzle", None) if loop is not None else None
+        if puzzle is None:
+            return _json({"ok": False, "error": "etkin puzzle yok"})
+        return _json({"ok": True, **puzzle.to_dict()})
+
+    @app.post("/api/puzzle/revize")
+    async def post_puzzle_revize(request: Request,
+                                 payload: Dict[str, Any] = Body(...)) -> Any:
+        """
+        Bir parçayı **değiştirilecek** olarak işaretler.
+
+        Gövde: `{id, not}` — not, ajanın bir sonraki turunda mesaja eklenir.
+        """
+        _check_origin(request)
+        loop = getattr(state, "loop", None)
+        puzzle = getattr(loop, "_puzzle", None) if loop is not None else None
+        if puzzle is None:
+            return _json({"ok": False, "error": "etkin puzzle yok"})
+        parca = puzzle.revize(str(payload.get("id") or ""),
+                              str(payload.get("not") or ""))
+        if parca is None:
+            return _json({"ok": False, "error": "parça bulunamadı"})
+        return _json({"ok": True, "parca": parca.to_dict(),
+                      "puzzle": puzzle.to_dict()})
+
+    @app.post("/api/puzzle/onay")
+    async def post_puzzle_onay(request: Request,
+                               payload: Dict[str, Any] = Body(default={})) -> Any:
+        """Walkthrough sorusunu cevaplar (kullanıcı onayı)."""
+        _check_origin(request)
+        loop = getattr(state, "loop", None)
+        puzzle = getattr(loop, "_puzzle", None) if loop is not None else None
+        if puzzle is None:
+            return _json({"ok": False, "error": "etkin puzzle yok"})
+        parca = puzzle.cevapla(str(payload.get("id") or ""),
+                               str(payload.get("cevap") or ""))
+        if parca is None:
+            return _json({"ok": False, "error": "parça bulunamadı"})
+        return _json({"ok": True, "parca": parca.to_dict()})
+
     # ─── MCP (Model Context Protocol) ──────────────────────────────────
 
     @app.get("/api/mcp")
