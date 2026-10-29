@@ -1101,6 +1101,15 @@ const Chat = {
   files: new Set(),
 
   init() {
+    // Ayarlar → dil seçici (varsayılan İngilizce)
+    const dilSecici = $('ui-lang');
+    if (dilSecici) {
+      dilSecici.value = (window.NC_DIL && window.NC_DIL.sec()) || 'en';
+      dilSecici.onchange = () => {
+        if (window.NC_DIL) window.NC_DIL.ayarla(dilSecici.value);
+      };
+    }
+
     // MCP düğmeleri
     const mcpEkleBtn = $('mcp-add');
     if (mcpEkleBtn) {

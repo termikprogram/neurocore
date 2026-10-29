@@ -13,8 +13,9 @@ python -m neurocore.app        # same thing
 
 The browser opens at `http://127.0.0.1:<port>` (next free port if taken).
 
-Add `?lang=en` to the URL to force the English interface (the UI translates
-itself automatically when your browser language is not Turkish).
+**The interface opens in English.** Switch languages from
+**Settings → Language** (English / Türkçe); the page reloads and the choice is
+remembered. `?lang=tr` / `?lang=en` overrides it for one visit.
 
 ### Options
 

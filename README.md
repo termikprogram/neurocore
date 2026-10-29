@@ -326,9 +326,10 @@ English costs ~20–40 % more tokens; round-trip encode/decode is correct in
 both languages. The **local model** remains Turkish-centric (it was trained
 on Turkish notes) — the cloud model handles English natively.
 
-**The UI itself is bilingual now**: `web/i18n.js` translates the Turkish
-interface when the browser language is not Turkish (`?lang=en` forces it,
-`?lang=tr` disables it). Screenshots above are from that mode. See also [docs/SPEC.md](docs/SPEC.md) for the technical contract.
+**The UI starts in English** and can be switched to Turkish from
+**Settings → Language**. `web/i18n.js` translates the Turkish source strings;
+the choice is stored in `localStorage` (`neurocore_dil`), and `?lang=en|tr`
+forces it for a single visit. See also [docs/SPEC.md](docs/SPEC.md) for the technical contract.
 
 ## 11. Output examples
 

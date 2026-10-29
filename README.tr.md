@@ -1,5 +1,7 @@
 # NeuroCore AI
 
+**Arayüz varsayılan olarak İngilizce açılır**; Ayarlar → Dil ile Türkçeye geçilir.
+
 **🇬🇧 English: [README.md](README.md) · [docs/en](docs/en/README.md)** · 🇹🇷 Türkçe (bu sayfa)
 
 **Sürüm 0.1.0** · Windows · Python 3.10+ · PyTorch (CUDA) · [Sürüm geçmişi](CHANGELOG.md)

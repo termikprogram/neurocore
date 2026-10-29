@@ -35,6 +35,12 @@
     "token": "tokens",
     "Ayarlar": "Settings",
     "Kapat": "Close",
+    // Ayarlar → dil bloğu
+    "Dil": "Language",
+    "Arayüz dili": "Interface language",
+    "Türkçe": "Turkish",
+    "İngilizce": "English",
+    "Dil değişince sayfa yenilenir.": "The page reloads when the language changes.",
     "Vazgeç": "Cancel",
     "Tamam": "OK",
     "Sil": "Delete",
@@ -177,15 +183,29 @@
     return sayi;
   }
 
+  //: ⚠ VARSAYILAN DİL = İngilizce. Tarayıcı dili ne olursa olsun uygulama
+  //: İngilizce açılır; Türkçeye geçiş **Ayarlar → Dil** ile yapılır ve
+  //: `localStorage.neurocore_dil` içinde kalıcıdır.
+  const VARSAYILAN_DIL = "en";
+
   function dilSec() {
     const p = new URLSearchParams(location.search);
     const zorla = p.get("lang");
     if (zorla === "tr" || zorla === "en") return zorla;
     const kayit = localStorage.getItem("neurocore_dil");
     if (kayit === "tr" || kayit === "en") return kayit;
-    const tarayici = (navigator.language || "en").toLowerCase();
-    return tarayici.startsWith("tr") ? "tr" : "en";
+    return VARSAYILAN_DIL;
   }
+
+  //: Arayüz dilini değiştirir (sayfa yenilenir: kaynak metinler Türkçe)
+  window.NC_DIL = {
+    sec: dilSec,
+    ayarla(dil) {
+      const temiz = dil === "tr" ? "tr" : "en";
+      try { localStorage.setItem("neurocore_dil", temiz); } catch (e) { /* yok */ }
+      location.reload();
+    },
+  };
 
   function basla() {
     if (dilSec() !== "en") return;
