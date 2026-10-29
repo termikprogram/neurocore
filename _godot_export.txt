@@ -1,0 +1,101 @@
+21:59:09 calisiyor (0.0 dk)
+21:59:35 calisiyor (0.5 dk)
+22:00:02 calisiyor (0.9 dk)
+22:00:28 calisiyor (1.4 dk)
+22:00:55 calisiyor (1.8 dk)
+22:01:21 calisiyor (2.2 dk)
+22:01:48 calisiyor (2.7 dk)
+22:02:14 calisiyor (3.1 dk)
+22:02:41 calisiyor (3.6 dk)
+22:03:07 calisiyor (4.0 dk)
+22:03:34 calisiyor (4.5 dk)
+22:04:01 calisiyor (4.9 dk)
+22:04:27 calisiyor (5.3 dk)
+22:04:54 calisiyor (5.8 dk)
+22:05:20 calisiyor (6.2 dk)
+22:05:47 calisiyor (6.7 dk)
+22:06:13 calisiyor (7.1 dk)
+22:06:40 calisiyor (7.6 dk)
+22:07:06 calisiyor (8.0 dk)
+22:07:33 calisiyor (8.4 dk)
+22:08:00 calisiyor (8.9 dk)
+22:08:26 calisiyor (9.3 dk)
+22:08:53 calisiyor (9.8 dk)
+22:09:19 calisiyor (10.2 dk)
+22:09:46 calisiyor (10.7 dk)
+22:10:12 calisiyor (11.1 dk)
+22:10:39 calisiyor (11.5 dk)
+22:11:05 calisiyor (12.0 dk)
+22:11:32 calisiyor (12.4 dk)
+22:11:59 calisiyor (12.9 dk)
+22:12:25 calisiyor (13.3 dk)
+22:12:52 calisiyor (13.8 dk)
+22:13:18 calisiyor (14.2 dk)
+22:13:45 calisiyor (14.6 dk)
+22:14:11 calisiyor (15.1 dk)
+22:14:38 calisiyor (15.5 dk)
+22:15:04 calisiyor (16.0 dk)
+22:15:31 calisiyor (16.4 dk)
+22:15:57 calisiyor (16.8 dk)
+22:16:24 calisiyor (17.3 dk)
+22:16:51 calisiyor (17.7 dk)
+22:17:17 calisiyor (18.2 dk)
+22:17:44 calisiyor (18.6 dk)
+22:18:10 calisiyor (19.1 dk)
+22:18:37 calisiyor (19.5 dk)
+22:19:03 calisiyor (19.9 dk)
+22:19:23 calisiyor (20.3 dk)
+22:19:50 calisiyor (20.7 dk)
+22:20:12 calisiyor (21.1 dk)
+22:20:32 calisiyor (21.4 dk)
+22:20:54 calisiyor (21.8 dk)
+22:21:16 calisiyor (22.2 dk)
+22:21:38 calisiyor (22.5 dk)
+22:21:58 calisiyor (22.9 dk)
+22:22:20 calisiyor (23.2 dk)
+22:22:42 calisiyor (23.6 dk)
+22:23:04 calisiyor (24.0 dk)
+22:23:24 calisiyor (24.3 dk)
+22:23:46 calisiyor (24.7 dk)
+22:24:08 calisiyor (25.0 dk)
+22:24:30 calisiyor (25.4 dk)
+22:24:52 calisiyor (25.8 dk)
+22:25:12 calisiyor (26.1 dk)
+22:25:34 calisiyor (26.5 dk)
+22:25:56 calisiyor (26.8 dk)
+22:26:18 calisiyor (27.2 dk)
+22:26:38 calisiyor (27.5 dk)
+22:27:00 calisiyor (27.9 dk)
+22:27:22 calisiyor (28.3 dk)
+22:27:44 calisiyor (28.6 dk)
+22:28:04 calisiyor (29.0 dk)
+22:28:26 calisiyor (29.3 dk)
+22:28:48 calisiyor (29.7 dk)
+ok=True · adim=77 · neden=tamamlandı · sure=539 sn
+--- CEVAP ---
+Haklısın, aynı çağrıyı tekrarlamayı bırakıyorum. Durumu özetliyorum.
+
+## Durum: [p3.1] Doğrulama — kısmen tamam
+
+**Yapılanlar (bu turda):**
+- Proje dosyalarının tamamı yerinde: `project.godot`, 10 script (`Config`, `Ball`, `Player`, `AI`, `Food`, `Main`, `HUD`, `Login`, `GameState`), 6 sahne (`Login`, `Main`, `Player`, `AI`, `Food`, `HUD`).
+- **Kök neden bulundu ve düzeltildi:** İlk headless çalıştırmada `Identifier "Config" not declared` parse hatası vardı. Sebep kod değil, **global sınıf önbelleğinin hiç üretilmemiş olmasıydı** (`.godot/global_script_class_cache.cfg` yoktu). `--import` ile önbellek üretildi; çıktıda `Config`, `Ball`, `PlayerBall`, `AIBall`, `FoodBall` sınıflarının kaydedildiği görüldü.
+- **Doğrulama:** `--headless --path . --quit` artık **çıkış kodu 0, sıfır hata/uyarı** ile dönüyor. Yani tüm scriptler parse ediliyor, sahne yükleniyor.
+
+**Beklenen çıktıyla karşılaştırma (p3.1):** ✅ Parse/derleme düzeyinde eşleşiyor — hata yok.
+
+**Kalan işler:**
+1. **Runtime doğrulaması** — oyunu birkaç saniye gerçekten çalıştırıp (`--quit-after`) çalışma zamanı hatası (null referans, sinyal bağlama) olmadığını görmek.
+2. **Mantık testleri** — `Config` fonksiyonları (`can_eat`, `speed_for_radius`, `radius_after_food`, `is_valid_name`) için bir test scripti yok; sınır durumlarını (p3.2) doğrulamak için yazılması gerekiyor.
+3. **Web export** — `web_release.zip` şablonuyla HTML5 çıktısı henüz alınmadı; asıl hedef bu.
+
+**Not:** `code.read_file` çağrısı bu turda 4 kez üst üste başarısız döndü (araç yanıtı kesildi). `project.godot` içeriğini okumam gerekiyor — bir sonraki adımda `shell_run` ile `Get-Content` üzerinden okuyup devam edeceğim.
+
+Sıradaki adım: runtime testi + `Config` birim testleri, ardından web export. Devam edeyim mi, yoksa önce başka bir şeye mi bakayım?
+--- BUILD ---
+--- KÖK DOSYALAR ---
+  export_presets.cfg: ✗ YOK
+  baslat.ps1: ✗ YOK
+  baslat.bat: ✗ YOK
+  README.md: ✗ YOK
+  SUNUM.md: ✗ YOK

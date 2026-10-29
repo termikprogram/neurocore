@@ -71,6 +71,18 @@ def komutlari_bul(kok: Path) -> Dict[str, Any]:
         except (OSError, json.JSONDecodeError):
             pass
 
+    # ⚠ Godot projesi: web build varsa servis et, yoksa export komutu ver
+    if (kok / "project.godot").exists():
+        dil = "godot"
+        web = kok / "build" / "web" / "index.html"
+        if web.exists():
+            calistir.append("python -m http.server 8000 --directory build/web")
+        else:
+            calistir.append(
+                'godot --headless --path . --export-release Web build/web/index.html')
+        if not any("godot" in t for t in test):
+            test.append("godot --headless --path . --quit")
+
     if not calistir:
         for aday, komut in (("server.js", "node server.js"),
                             ("index.js", "node index.js"),
@@ -91,7 +103,7 @@ def komutlari_bul(kok: Path) -> Dict[str, Any]:
 
 # ─── betik üretimi ──────────────────────────────────────────────────────────
 
-def _ps1(proje: str, komutlar: Dict[str, Any]) -> str:
+def _ps1(proje: str, komutlar: Dict[str, Any], port: int = 3000) -> str:
     """PowerShell başlatma betiği (bağımlılık + sunucu + tarayıcı)."""
     kurulum = ""
     if komutlar.get("kurulum"):
@@ -110,13 +122,41 @@ Write-Host "=== {proje} ===" -ForegroundColor Cyan
 {kurulum}
 # Sunucuyu arka planda baslat ve tarayiciyi ac
 Write-Host "Sunucu baslatiliyor: {calistir}" -ForegroundColor Cyan
-$env:PORT = if ($env:PORT) {{ $env:PORT }} else {{ "3000" }}
+$env:PORT = if ($env:PORT) {{ $env:PORT }} else {{ "{port}" }}
 Start-Process -FilePath "powershell" -ArgumentList "-NoExit", "-Command", "{calistir}"
 Start-Sleep -Seconds 3
 Start-Process "http://localhost:$env:PORT"
 Write-Host "Tarayicida aciliyor: http://localhost:$env:PORT" -ForegroundColor Green
 Write-Host "Kapatmak icin acilan sunucu penceresini kapatin." -ForegroundColor DarkGray
 '''
+
+
+def _readme(proje: str, kart: Dict[str, Any],
+            komutlar: Dict[str, Any]) -> str:
+    """README yoksa: gerçek komutlarla kısa teslim README'si."""
+    calistir = (komutlar.get("calistir") or [])[0] if komutlar.get("calistir") else "—"
+    satirlar = [
+        f"# {proje}", "",
+        (kart.get("gorev") or "Bu proje NeuroCore tarafından üretildi.")[:400], "",
+        "## Çalıştırma", "", "```powershell",
+        ".\\baslat.bat        # çift tıkla", ".\\baslat.ps1        # PowerShell",
+        "```", "",
+        "Elle:", "", "```powershell", *komutlar.get("kurulum", []), calistir, "```",
+    ]
+    if komutlar.get("test"):
+        satirlar += ["", "## Testler", "", "```powershell", *komutlar["test"], "```"]
+    mim = kart.get("mimari") or {}
+    if mim.get("giris_noktalari") or mim.get("klasorler"):
+        satirlar += ["", "## Yapı", ""]
+        if mim.get("giris_noktalari"):
+            satirlar.append("- **Giriş:** " + ", ".join(
+                f"`{g}`" for g in mim["giris_noktalari"]))
+        for k in (mim.get("klasorler") or [])[:8]:
+            satirlar.append(f"- `{k['ad']}/` — {k['dosya']} dosya")
+    satirlar += ["", "## Notlar", "",
+                 "- Bu README otomatik üretildi; ayrıntılar için `SUNUM.md`.",
+                 "- Teslim dosyaları: `baslat.ps1`, `baslat.bat`, `SUNUM.md`, `sunum.html`."]
+    return "\n".join(satirlar) + "\n"
 
 
 def _bat(proje: str) -> str:
@@ -261,11 +301,16 @@ def yaz(kok: Path, kart: Dict[str, Any],
     proje = kart.get("proje") or kok.name
     md = sunum_md(kart, run_ozet, komutlar)
     hedefler = {
-        "baslat.ps1": _ps1(proje, komutlar),
+        "baslat.ps1": _ps1(proje, komutlar,
+                             8000 if komutlar.get("dil") == "godot" else 3000),
         "baslat.bat": _bat(proje),
         "SUNUM.md": md,
         "sunum.html": sunum_html(kart, md),
     }
+    # ⚠ README de teslim parçası: yoksa kısa ama gerçek bir README yaz
+    if not (kok / "README.md").exists():
+        hedefler["README.md"] = _readme(proje, kart, komutlar)
+
     yazilan: List[str] = []
     atlanan: List[str] = []
     for ad, icerik in hedefler.items():

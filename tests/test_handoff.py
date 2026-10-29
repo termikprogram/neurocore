@@ -76,9 +76,10 @@ class TestYazma(unittest.TestCase):
         kok = _node_projesi()
         sonuc = yaz(kok, _kart(kok), {"duration": "142 sn"})
         self.assertTrue(sonuc["ok"])
+        # ⚠ README de teslim parçası: yoksa üretilir (5 dosya)
         self.assertEqual(sorted(sonuc["yazilan"]),
                          sorted(["baslat.ps1", "baslat.bat", "SUNUM.md",
-                                 "sunum.html"]))
+                                 "sunum.html", "README.md"]))
         for ad in sonuc["yazilan"]:
             self.assertTrue((kok / ad).exists(), f"{ad} yok")
 
@@ -140,3 +141,41 @@ class TestSunum(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestGodotProjesi(unittest.TestCase):
+    """⚠ Godot projesi desteği (web build servisi)."""
+
+    def _godot(self, web: bool = True) -> Path:
+        kok = Path(tempfile.mkdtemp(prefix="nc-godot-"))
+        (kok / "project.godot").write_text("[application]\nconfig/name=\"x\"\n",
+                                           encoding="utf-8")
+        if web:
+            (kok / "build" / "web").mkdir(parents=True)
+            (kok / "build" / "web" / "index.html").write_text("<canvas>",
+                                                              encoding="utf-8")
+        return kok
+
+    def test_web_build_servis_komutu(self) -> None:
+        k = komutlari_bul(self._godot(web=True))
+        self.assertEqual(k["dil"], "godot")
+        self.assertIn("http.server", k["calistir"][0])
+        self.assertIn("build/web", k["calistir"][0])
+
+    def test_export_komutu(self) -> None:
+        k = komutlari_bul(self._godot(web=False))
+        self.assertIn("--export-release", k["calistir"][0])
+        self.assertIn("Web", k["calistir"][0])
+
+    def test_baslat_ps1_port_8000(self) -> None:
+        kok = self._godot(web=True)
+        yaz(kok, {"proje": kok.name, "gorev": "godot oyun"})
+        ps1 = (kok / "baslat.ps1").read_text(encoding="utf-8")
+        self.assertIn("8000", ps1)
+        self.assertIn("http.server", ps1)
+
+    def test_readme_uretir(self) -> None:
+        kok = self._godot(web=True)
+        yaz(kok, {"proje": kok.name, "gorev": "godot oyun"})
+        readme = (kok / "README.md").read_text(encoding="utf-8")
+        self.assertIn("#", readme)
+        self.assertIn("baslat", readme)

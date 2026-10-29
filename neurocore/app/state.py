@@ -400,9 +400,29 @@ class AppState:
             self.busy_since = time.time() if busy else 0.0
 
     def is_busy(self) -> bool:
-        """Ajan çalışıyor mu?"""
+        """
+        Ajan çalışıyor mu?
+
+        ⚠ ÖLÇÜLEN HATA: iptal edilen bir koşu, askıda kalan araç çağrısı
+        yüzünden geri dönmeyince `busy` bayrağı **kalıcı olarak True** kaldı
+        ve uygulama yeni görev kabul etmedi (yeniden başlatma gerekti).
+        Bu yüzden bayat bayrak otomatik düşürülür.
+        """
         with self._lock:
+            if self.busy and self.busy_since > 0:
+                # 45 dk: en uzun görev (30 dk) + güvenlik payı
+                if (time.time() - self.busy_since) > self.BAYAT_ISARET:
+                    logger.warning(
+                        "Meşgul bayrağı bayatladı "
+                        f"({(time.time() - self.busy_since)/60:.0f} dk) — "
+                        "sıfırlandı")
+                    self.busy = False
+                    self.busy_since = 0.0
+                    return False
             return self.busy
+
+    #: Bu süreyi aşan "meşgul" bayrağı bayat sayılır (saniye)
+    BAYAT_ISARET = 45 * 60
 
     def uptime(self) -> float:
         """Uygulama çalışma süresi (saniye)."""
