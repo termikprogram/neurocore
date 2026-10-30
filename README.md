@@ -366,3 +366,13 @@ same `.blend` files with `tools/donus_animasyon.py`.
 ## License
 
 Proprietary — see [LICENSE](LICENSE). Turkish documentation: [README.tr.md](README.tr.md) · English docs folder: [docs/en](docs/en/README.md).
+
+---
+
+## 📚 Documentation / Belgeler
+
+- **Wiki (EN + TR):** <https://github.com/termikprogram/neurocore/wiki>
+  - [Getting Started](https://github.com/termikprogram/neurocore/wiki/Getting-Started) · [Big Files](https://github.com/termikprogram/neurocore/wiki/Big-Files) · [Project Index](https://github.com/termikprogram/neurocore/wiki/Project-Index) · [Refactor Guard](https://github.com/termikprogram/neurocore/wiki/Refactor-Guard)
+  - Türkçe: [Ana Sayfa](https://github.com/termikprogram/neurocore/wiki/Home-TR)
+- **Changelog:** [CHANGELOG.md](CHANGELOG.md) — v0.2.0: big projects, code index, refactor guard
+- **Release:** <https://github.com/termikprogram/neurocore/releases/tag/v0.2.0>

@@ -1,0 +1,1 @@
+NeuroCore v0.2.0 · [repository](https://github.com/termikprogram/neurocore) · [releases](https://github.com/termikprogram/neurocore/releases) · measured, not estimated.
