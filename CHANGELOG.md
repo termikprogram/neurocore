@@ -6,6 +6,88 @@ Sürümleme: [SemVer](https://semver.org/lang/tr/)
 
 ---
 
+## [0.2.0] — 2026-10-30
+
+Bu sürüm **büyük projelerde çalışma** üzerine kurulu; her başlıkta ölçüm var.
+
+### Eklendi
+
+**Büyük dosya okuma — `neurocore/agent/bigfile.py`**
+- Seyrek satır indeksi (`<dosya>.ncidx.json`, her 2000. satırın bayt ofseti)
+- Pencere okuma (`pencere`) · yapısal harita (`harita`) · akışlı arama (`ara`)
+- Ölçüm (10.000.000 satır / 427 MB): indeks **8,2 sn · 0,6 MB bellek**,
+  rastgele pencere **11 ms**, arama **6,7 sn**
+- `search_text` 4 MB üstü dosyaları artık **atlamıyor** (akışlı tarama)
+
+**Proje kod indeksi — `neurocore/agent/codeindex.py`**
+- SQLite (`sembol`, `iliski`, `cagri`, `tip`, `kalitim`) + FTS5
+- **Artımlı**: yalnız mtime/size değişen dosyalar taranır
+- **AST tabanlı**: Python `ast` (docstring/yanlış eşleşme yok, nitelikli adlar,
+  `ast.Call` ile çağrılar) · GDScript yapısal tarayıcı (`class_name/func/signal/const`,
+  `preload`, fonksiyon içi çağrılar)
+- `.gdignore` dizinleri taranmaz
+- Ölçüm (2.000 dosya / 5,99 M satır): ilk kurulum **39,8 sn** · DB **13,4 MB** ·
+  artımlı **0,15 sn** · sorgu **3-8 ms**
+- Ölçüm (TitoWarWeb, 3,7 GB): **7,3 sn** · 497 dosya · **144.035 satır** · 6.865 sembol
+
+**6 yeni kod aracı** (toplam 94): `code.index`, `code.map`, `code.find_symbol`,
+`code.find_references`, `code.callers`, `code.related`, `code.hierarchy`,
+`code.mro`, `code.types`, `code.impact_map`, `code.outline`
+
+**Etkileşimli etki haritası (`code.impact_map`)**
+- Çağrı grafiğinden tek dosya HTML+SVG: tıkla-seç, komşu vurgulama, dosya:satır paneli
+- Ölçüm: `sembol_ara` → 29 düğüm · 29 kenar · 9,6 KB · dış kaynak yok
+
+**Refactor parite kapısı — `neurocore/agent/refactor.py`**
+- `git diff --numstat` ölçümü: silinen > 150 ve eklenen < silinen×0.60 → **kod kaybı**
+- `parite_kontrol()`: GDScript · Python · JS/TS · Rust · Go fonksiyon adı farkı
+- Döngü kapıları: `_refactor_denetle` (yanıt öncesi) +
+  `_refactor_bitis_denetle` (her bitişte, süre sınırı dahil) +
+  **otomatik `git checkout`** (oran < 0,5 ve `NC_OTOMATIK_GERI_AL=1`)
+- Gerçek olay: **706 silinen / 35 eklenen** yakalandı, dosya geri alındı
+
+### Düzeltildi
+
+- **Araç çıktısı ajana ulaşmıyordu** — `ToolResult.to_dict()` 12.000 karakteri
+  aşınca `data`yı JSON **string**'e çeviriyordu; ajan yalnız meta veri görüyordu.
+  Artık yapı korunur (`_kirp_veri`).
+- **`render()` yerine `_summarize_result`** — 20 KB'lik dosya ham JSON olarak
+  6 KB'a kesiliyordu; artık yapılandırılmış biçim.
+- **Bağlam sıkıştırması okunan dosyayı siliyordu** — `_okuma_kasasi` +
+  `_okuma_ozeti` (en fazla 3 dosya sıkıştırma özetine taşınır); eşik 24→40.
+- **`tool_call` kimlikleri** — sağlayıcı `id` vermezse kimlik uydurulur ama
+  asistan mesajının `raw_message`'ı eski kimlikleri taşırdı; `tool` sonuçları
+  yetim sayılıp silinirdi. Artık üç yerde senkron.
+- **`search_text(path=<dosya>)`** — dosya yolu dizin sanılıyor, 0 sonuç
+  dönüyordu; ajan "karşılığı yok" sanıp doğru düzenlemeyi reddediyordu. Düzeltildi.
+- **İçerik sınırı 14.000 → 36.000 karakter** (`NC_ICERIK_SINIRI` ile ayarlanır);
+  790 satırlık gövde artık tam geliyor.
+- **`read_file` varsayılanı 400 → 800 satır**
+- **Kapı hata yalıtımı** — bir kapı çökerse çalışma ölmez (`'NoneType' has no 'get'`
+  ile 613 sn'lik koşu sıfır cevapla bitmişti)
+
+### Değişti
+
+- **Araç zorunlu kapısı** — görevde `code.*` adı geçiyor ve hiç araç
+  çağrılmamışsa yanıt reddedilir. Ölçüm: istekte tool **0 → 3**.
+- **Madde kapısı** — 2+ maddeli görevde madde başına kanıt istenir; kanıt
+  **mesajlardan** sayılır (plan/puzzle adımları "araç" sayılıp sayı bozuluyordu).
+- **Madde → araç eşlemesi** — "nerede tanımlı" → `find_symbol`,
+  "kim çağırıyor" → `callers`, "ilişkili" → `related`, "en büyük" → `map`.
+- **Kanıt hatırlatma** — araç çıktısında sembol varken "yok" denirse o satırlar
+  aynen alıntılanıp düzeltme istenir.
+- **`.gdignore` artık indekste de geçerli** — TitoWarWeb'de 140 backup dosyası
+  638→487 dosyaya düştü (190.208→142.665 satır).
+
+### Testler
+
+- **98 test** (`test_bigfile` 16 · `test_codeindex` 18 · `test_codeast` 20 ·
+  `test_refactor` 18 · `test_toolresult` 10 · `test_envcheck` 16)
+- Yeni: bellek sınırı (<8 MB), `.gdignore`, dosya yolu araması, çok dilli
+  parite, gerçek `git checkout` senaryosu
+
+---
+
 ## [0.1.0] — 2026-10-28
 
 İlk yayınlanan sürüm. Bu sürüm **ölçülmüş** davranışlara dayanır; her
