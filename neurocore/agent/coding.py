@@ -596,6 +596,22 @@ class CodingAgent:
             raise CodingError(f"dosya okunamadı ({path}): {exc}") from exc
 
         self._counter["files_read"] += 1
+
+        # ⚠ BÜYÜK DOSYA: tüm dosyayı splitlines() ile belleğe ALMA.
+        # 10 M satır ≈ 250 MB metin + ~1-2 GB Python nesnesi; indeksli pencere
+        # okuma 11 ms'de aynı satırı verir (ölçüldü).
+        try:
+            from neurocore.agent import bigfile
+
+            if bigfile.buyuk_mu(target):
+                pencere = bigfile.pencere(target, bas=start_line or 1,
+                                          adet=max_lines,
+                                          numarali=with_line_numbers)
+                pencere["path"] = self.relative(target)
+                return pencere
+        except Exception as exc:
+            logger.debug(f"büyük dosya penceresi kullanılamadı: {exc}")
+
         all_lines = text.splitlines()
         total = len(all_lines)
         begin = max(0, int(start_line) - 1) if start_line else 0
@@ -624,6 +640,30 @@ class CodingAgent:
                 + (f" — devamı için start_line={end + 1}" if end < total else "")
             ),
         }
+
+    def outline(self, path: str, limit: int = 400) -> Dict[str, Any]:
+        """
+        Dosyanın **yapısal haritasını** çıkarır: sınıf/fonksiyon/başlık satırları.
+
+        ⚠ 10 milyon satırlık dosyada bile dosya belleğe alınmaz; tek geçişte
+        akıtılır ve yalnız yapı satırları döner. Ajan önce haritayı görür,
+        sonra ilgilendiği aralığı `code.read_file` ile okur.
+
+        Args:
+            path: Dosya yolu (çalışma alanına göreli)
+            limit: En fazla kaç yapı girişi
+
+        Returns:
+            {"path", "language", "total_lines", "entries": [{line, text}],
+             "truncated", "note"}
+        """
+        self._counter["outlines"] = self._counter.get("outlines", 0) + 1
+        target = self.resolve(path, must_exist=True)
+        from neurocore.agent import bigfile
+
+        sonuc = bigfile.harita(target, sinir=max(10, int(limit)))
+        sonuc["path"] = self.relative(target)
+        return sonuc
 
     def read_many(self, paths: Sequence[str], max_lines_each: int = 200) -> Dict[str, Any]:
         """Birden çok dosyayı okur (isteme toplu bağlam için)."""
@@ -713,6 +753,23 @@ class CodingAgent:
             if file_glob and not fnmatch.fnmatch(file_path.name, file_glob):
                 continue
             if file_path.stat().st_size > 4 * 1024 * 1024:
+                # ⚠ ÖNCE: bu dosyalar tamamen ATLANIYORDU (10 M satırlık dosya
+                # aramada görünmüyordu). Şimdi akışlı taranır (sabit bellek).
+                try:
+                    from neurocore.agent import bigfile
+
+                    sonuc = bigfile.ara(file_path, pattern, regex=regex,
+                                        sinir=max_results)
+                    files_searched += 1
+                    for h in sonuc.get("hits", []):
+                        hits.append(SearchHit(file=self.relative(file_path),
+                                              line=int(h["line"]),
+                                              text=str(h["text"])))
+                        if len(hits) >= max_results:
+                            truncated = True
+                            break
+                except Exception as exc:
+                    logger.debug(f"akışlı arama başarısız: {exc}")
                 continue
             files_searched += 1
             try:
@@ -2300,6 +2357,15 @@ class CodingAgent:
                   P("start_line", "integer", "Başlangıç satırı (1 tabanlı)"),
                   P("max_lines", "integer", "Okunacak satır sayısı", default=400)],
                  "dosya içeriği", ["okuma"]),
+
+            wrap("code.outline",
+                 "Dosyanın yapısal haritası (sınıf/fonksiyon/başlık satırları). "
+                 "BÜYÜK dosyalarda (milyonlarca satır) İLK bunu çağırın, sonra "
+                 "ilgili aralığı code.read_file(start_line, max_lines) ile okuyun.",
+                 Safety.READ,
+                 [P("path", required=True, description="Dosya yolu"),
+                  P("limit", "integer", "En fazla yapı girişi", default=400)],
+                 "yapı haritası", ["okuma", "harita", "büyük dosya"]),
 
             wrap("code.read_many",
                  "Birden çok dosyayı tek çağrıda okur (ilgili dosyaları toplu görmek için).",

@@ -215,6 +215,16 @@ Kullanıcı hangi dilde yazdıysa **o dilde** yanıtla. Türkçe soruya Türkçe
 onları **olduğu gibi** bırak. Dil belirsizse (ör. tek sözcük) son kullanılan
 dili sürdür.
 
+## Büyük dosyalar (milyonlarca satır)
+Bir dosya **2 MB'tan büyükse** asla tamamını okumaya çalışma:
+1. `code.outline(path)` → yapı haritası (sınıf/fonksiyon/başlık satırları)
+2. `code.read_file(path, start_line=..., max_lines=...)` → yalnız ilgili pencere
+   (10 M satırda bile ~0,2 sn; indeksli okuma)
+3. Arama için `code.search_text` (büyük dosyada akışlı taranır)
+4. Düzenleme için pencereyi oku, `code.edit_file` ile cerrahi değişiklik yap.
+`total_lines` alanına bakarak dosyanın ne kadar büyük olduğunu anla; gerekirse
+önce `note` alanındaki "devamı için start_line=..." ipucunu kullan.
+
 ## Araştırma (görsel/3B/API işlerinde zorunlu)
 Görsel, 3B, ışık/gölge/materyal, ses veya motor-API işlerinde **en az bir kez**
 ara: `web.search` ya da bilgi kasası (`knowledge.search`). Bulduğun 2-3 maddeyi
