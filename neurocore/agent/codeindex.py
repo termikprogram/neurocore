@@ -465,15 +465,41 @@ def _tara(yol: Path, goreli: str) -> Optional[DosyaTarama]:
     return DosyaTarama(goreli, satir, d, semboller, iliskiler)
 
 
+def _gdignore_dizinler(kok: Path) -> set:
+    """
+    `.gdignore` içeren dizinleri toplar (Godot kuralı: alt ağaç taranmaz).
+
+    ⚠ ÖLÇÜLEN EKSİK: ajan TitoWarWeb'de `addons/.godot_ai_update/backup/`
+    dizinine `.gdignore` koydu; Godot görmezden geldi ama **bizim indeks**
+    hâlâ 140 yedek dosyayı tarıyordu. Bu yardımcı o boşluğu kapatır.
+    """
+    kok = Path(kok)
+    bulunan: set = set()
+    try:
+        for p in kok.rglob(".gdignore"):
+            bulunan.add(p.parent.resolve())
+    except OSError:
+        pass
+    return bulunan
+
+
 def _dosyalar(kok: Path) -> Iterable[Path]:
-    """Taranacak dosyaları üretir (atlanan dizinler hariç)."""
-    for p in Path(kok).rglob("*"):
+    """Taranacak dosyaları üretir (atlanan dizinler + `.gdignore` hariç)."""
+    kok = Path(kok)
+    yoksay = _gdignore_dizinler(kok)
+    for p in kok.rglob("*"):
         if not p.is_file():
             continue
         if any(parca in ATLA for parca in p.parts):
             continue
         if p.suffix.lower() not in DILLER:
             continue
+        if yoksay:
+            try:
+                if any(ust in yoksay for ust in p.parents):
+                    continue
+            except OSError:
+                pass
         yield p
 
 

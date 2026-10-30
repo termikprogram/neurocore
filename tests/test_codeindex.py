@@ -163,3 +163,21 @@ class TestSinirlar(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestGdignore(unittest.TestCase):
+    """⚠ Godot `.gdignore` dizinleri indekse girmemeli."""
+
+    def test_gdignore_atlanir(self) -> None:
+        kok = Path(tempfile.mkdtemp(prefix="nc-gdi-"))
+        (kok / "src").mkdir()
+        (kok / "src" / "a.gd").write_text("func a():\n\tpass\n", encoding="utf-8")
+        (kok / "yedek").mkdir()
+        (kok / "yedek" / "eski.gd").write_text("func eski():\n\tpass\n",
+                                               encoding="utf-8")
+        (kok / "yedek" / ".gdignore").write_text("", encoding="utf-8")
+        o = codeindex.dizinle(kok, zorla=True)
+        self.assertEqual(o["dosya"], 1)
+        s = codeindex.sembol_ara(kok, "eski")
+        self.assertEqual(s["sayi"], 0)
+        s2 = codeindex.sembol_ara(kok, "a")
+        self.assertGreaterEqual(s2["sayi"], 1)
