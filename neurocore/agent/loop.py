@@ -3500,8 +3500,11 @@ class AgentLoop:
         arac_adim += sum(
             1 for m in messages
             if str(getattr(m, "content", "")).startswith(("Araç sonucu", "KANIT")))
-        if arac_adim >= madde:
+        kapsanan, eksik = self._madde_kapsama(task, messages)
+        if kapsanan >= madde:
             return False
+        logger.info(f"KAPI: madde={madde} kapsanan={kapsanan} "
+                    f"eksik={len(eksik)} arac={arac_adim}")
         if self._counter.get("madde_kapisi", 0) >= 2:
             # ⚠ Model hâlâ araç çağırmıyorsa kanıtı SUNUCU toplar (bir kez)
             if not self._counter.get("madde_kaniti"):
@@ -3519,14 +3522,101 @@ class AgentLoop:
         self._add_step(run, AgentStep(
             index=len(run.steps), kind="verify", ok=False,
             text=(f"madde kapısı: {madde} madde var, {arac_adim} araç çağrısı "
-                  "— kanıt isteniyor")))
-        messages.append(LLMMessage(
-            "user",
-            f"Bu görevde **{madde} ayrı madde** var ama yalnız {arac_adim} "
-            "araç çağrısı yaptın. Her madde için ayrı araç çağır ve sonucu "
-            "göster (örn. code.find_symbol, code.callers, code.related, "
-            "code.map). Kanıtsız madde bırakma. Sonra yanıtı yaz."))
+                  "— sunucu kanıtı toplanıyor")))
+
+        # ⚠ MADDE → ARAÇ EŞLEMESİ (zorunlu): modelin araç seçimine bırakmak
+        # yerine her madde için doğru aracı SUNUCU çalıştırır.
+        esleme = self._madde_arac_eslemesi(task)
+        if not self._counter.get("madde_kaniti"):
+            self._counter["madde_kaniti"] = 1
+            eklenen = self._madde_kaniti(task, run, messages)
+        else:
+            eklenen = 0
+        satirlar = [f"Bu görevde **{madde} madde** var; her biri için "
+                    "kanıt gerekli."]
+        if esleme:
+            satirlar.append("Madde → araç eşlemesi:")
+            for i, (madde_metni, arac) in enumerate(esleme, start=1):
+                satirlar.append(f"  {i}. {madde_metni[:70]} → `{arac}`")
+        if eklenen:
+            satirlar.append(f"Sunucu {eklenen} araç sonucu sağladı "
+                            "(yukarıdaki KANIT mesajları).")
+        satirlar.append("Şimdi her maddeyi bu kanıta dayanarak yanıtla; "
+                        "kanıt satırını aynen alıntıla.")
+        messages.append(LLMMessage("user", "\n".join(satirlar)))
         return True
+
+    #: Madde metninden hangi araca ihtiyaç duyulduğunu çıkarır
+    ARAC_IPUCLARI = (
+        (("nerede", "tanımlı", "tanimli", "hangi dosya", "hangi satır"), "code.find_symbol"),
+        (("çağır", "cagir", "çağıran", "cagiran", "caller", "kimler"),
+         "code.callers"),
+        (("ilişkili", "iliskili", "related", "import", "bağımlı"), "code.related"),
+        (("en büyük", "en buyuk", "toplam satır", "harita", "dağılım"), "code.map"),
+        (("hiyerarşi", "hiyerarsi", "kalıtım", "kalitim"), "code.hierarchy"),
+        (("tip", "tür", "type"), "code.types"),
+    )
+
+    def _madde_arac_eslemesi(self, task: str) -> List[Tuple[str, str]]:
+        """
+        Görevdeki her maddeyi, metnine en uygun **araçla** eşler.
+
+        ⚠ Ölçüldü: model 4 maddelik görevde yanlış araçları seçiyordu
+        (types/related çekip find_symbol'u atlıyordu). Bu eşleme kanıtı
+        garantiler.
+
+        Returns:
+            [(madde metni, araç adı)] listesi
+        """
+        satirlar = [x.strip() for x in (task or "").splitlines()
+                    if re.match(r"^\s*(?:\d+[\).]|[-*])\s+", x)]
+        sonuc: List[Tuple[str, str]] = []
+        for satir in satirlar:
+            metin = re.sub(r"^\s*(?:\d+[\).]|[-*])\s+", "", satir)
+            kucuk = metin.lower()
+            arac = ""
+            for anahtarlar, aday in self.ARAC_IPUCLARI:
+                if any(k in kucuk for k in anahtarlar):
+                    arac = aday
+                    break
+            sonuc.append((metin, arac or "code.find_symbol"))
+        return sonuc
+
+    def _madde_kapsama(self, task: str,
+                       messages: List[LLMMessage]) -> Tuple[int, List[str]]:
+        """
+        Her madde için **kanıt kapsaması** ölçer.
+
+        ⚠ Ölçüldü: kapı yalnız "kaç araç çağrıldı" sayıyordu; model yanlış
+        araçları çağırınca (index + map) 4 madde "kanıtlı" sayılıyordu.
+        Burada her maddenin anahtar terimi (tırnak içi sembol veya ilk anlamlı
+        kelime) araç çıktılarında aranır.
+
+        Returns:
+            (kapsanan madde sayısı, eksik madde metinleri)
+        """
+        maddeler = self._madde_arac_eslemesi(task)
+        if not maddeler:
+            return 0, []
+        kanit_metni = "\n".join(
+            str(getattr(m, "content", "") or "") for m in messages
+            if getattr(m, "role", "") == "tool"
+            or str(getattr(m, "content", "") or "").startswith(
+                ("Araç sonucu", "KANIT")))
+        kucuk_kanit = kanit_metni.lower()
+        kapsanan = 0
+        eksik: List[str] = []
+        for metin, _arac in maddeler:
+            terimler = [t.strip() for t in re.findall(r"`([^`]{2,60})`", metin)]
+            if not terimler:
+                # tırnaksız: dosya yolu veya 4+ harfli ilk kelime
+                terimler = re.findall(r"[\w./-]{4,}", metin)[:2]
+            bulundu = any(t.lower() in kucuk_kanit for t in terimler if t)
+            if bulundu:
+                kapsanan += 1
+            else:
+                eksik.append(metin)
+        return kapsanan, eksik
 
     def _kanit_hatirlat(self, task: str, cevap: str, run: AgentRun,
                         messages: List[LLMMessage]) -> bool:
@@ -3606,7 +3696,11 @@ class AgentLoop:
                 logger.debug(f"kanıt aracı atlandı ({ad}): {exc}")
                 continue
             if sonuc is None:
+                logger.info(f"KANIT {ad}: sonuç yok")
                 continue
+            logger.info(f"KANIT {ad}: ok={sonuc.ok} · "
+                        f"hata={(sonuc.error or '')[:70]} · "
+                        f"onay={sonuc.needs_approval}")
             metin = self._summarize_result(sonuc)
             messages.append(LLMMessage(
                 "user", f"KANIT (sunucu çalıştırdı · {ad}):\n{metin}"))
