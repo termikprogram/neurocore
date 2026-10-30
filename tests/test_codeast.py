@@ -160,3 +160,66 @@ class TestCagriSayisi(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestHiyerarsi(unittest.TestCase):
+    """(b) sınıf hiyerarşisi: taban + alt sınıf."""
+
+    def test_taban_ve_alt(self) -> None:
+        kok = Path(tempfile.mkdtemp(prefix="nc-hier-"))
+        (kok / "modeller.py").write_text(
+            "class Hayvan:\n"
+            "    def ses(self):\n"
+            "        return '...'\n"
+            "\n"
+            "class Kopek(Hayvan):\n"
+            "    def ses(self):\n"
+            "        return 'hav'\n"
+            "\n"
+            "class Kedi(Hayvan):\n"
+            "    pass\n",
+            encoding="utf-8")
+        codeindex.dizinle(kok)
+        h = codeindex.hiyerarsi(kok, "Kopek")
+        self.assertTrue(h["tanim"])
+        self.assertEqual(h["tabanlar"][0]["taban"], "Hayvan")
+        alt = codeindex.hiyerarsi(kok, "Hayvan")
+        alt_adlar = {x["alt"] for x in alt["alt_siniflar"]}
+        self.assertIn("Kopek", alt_adlar)
+        self.assertIn("Kedi", alt_adlar)
+
+    def test_hic_kalitim_yok(self) -> None:
+        kok = Path(tempfile.mkdtemp(prefix="nc-hier2-"))
+        (kok / "a.py").write_text("class Yalniz:\n    pass\n", encoding="utf-8")
+        codeindex.dizinle(kok)
+        h = codeindex.hiyerarsi(kok, "Yalniz")
+        self.assertEqual(h["tabanlar"], [])
+        self.assertEqual(h["alt_siniflar"], [])
+
+
+class TestEtkiHaritasi(unittest.TestCase):
+    """(c) etki haritası: SVG + HTML raporu."""
+
+    def test_html_ve_svg(self) -> None:
+        kok = Path(tempfile.mkdtemp(prefix="nc-etki-"))
+        (kok / "a.py").write_text(
+            "def hedef():\n    return 1\n"
+            "\n"
+            "def cagiran_a():\n    return hedef()\n"
+            "\n"
+            "def cagiran_b():\n    return hedef()\n",
+            encoding="utf-8")
+        codeindex.dizinle(kok)
+        e = codeindex.etki_haritasi(kok, "hedef", sinir=10)
+        self.assertTrue(e["ok"])
+        self.assertGreaterEqual(e["cagiranlar"], 2)
+        html = Path(e["html"])
+        self.assertTrue(html.exists())
+        icerik = html.read_text(encoding="utf-8")
+        self.assertIn("<svg", icerik)
+        self.assertIn("hedef", icerik)
+        self.assertGreater(e["svg_bytes"], 100)
+
+    def test_indeks_yok(self) -> None:
+        kok = Path(tempfile.mkdtemp(prefix="nc-etki2-"))
+        e = codeindex.etki_haritasi(kok, "x")
+        self.assertFalse(e["ok"])

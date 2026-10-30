@@ -35,6 +35,8 @@ sembol_fts (FTS5)
 | `code.find_references` | adı kullanan dosyalar (import grafiği) |
 | `code.related` | dosyanın import ettikleri + onu kullananlar + sembolleri |
 | `code.callers` | çağrı grafiği: kim çağırıyor / o kimi çağırıyor |
+| `code.hierarchy` | sınıf hiyerarşisi: taban + alt sınıflar (`kalitim` tablosu) |
+| `code.impact_map` | etki haritası: SVG/HTML grafik (`.neurocore/raporlar/etki-<ad>.html`) |
 
 ### AST tabanlı çıkarım
 
@@ -62,3 +64,11 @@ code.index → code.map → code.find_symbol / code.related → code.read_file(p
 - SQLite WAL; eşzamanlı okuma güvenli
 
 Kaynak: `neurocore/agent/codeindex.py` · Testler: `tests/test_codeindex.py` (16)
+
+
+## Etki haritası
+
+`code.impact_map("sembol_ara")` → `.neurocore/raporlar/etki-sembol_ara.html`
+Ölçüm: 11 çağıran · 12 çağrılan · 5 ms · SVG 6,6 KB · tek dosya (dış kaynak yok).
+
+![Etki haritası](../images/etki-haritasi.png)

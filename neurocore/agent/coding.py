@@ -679,6 +679,20 @@ class CodingAgent:
 
         return codeindex.cagri_grafigi(self.workspace, ad, sinir=limit)
 
+    def hierarchy(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+        """Sınıf hiyerarşisi: taban sınıflar + alt sınıflar (AST'ten)."""
+        from neurocore.agent import codeindex
+
+        return codeindex.hiyerarsi(self.workspace, ad, sinir=limit)
+
+    def impact_map(self, ad: str, depth: int = 1,
+                   limit: int = 25) -> Dict[str, Any]:
+        """Etki haritası: çağrı grafiğinden SVG/HTML rapor üretir."""
+        from neurocore.agent import codeindex
+
+        return codeindex.etki_haritasi(self.workspace, ad, derinlik=depth,
+                                       sinir=limit)
+
     def related(self, path: str, limit: int = 30) -> Dict[str, Any]:
         """Dosyanın import ettikleri + onu kullananlar + sembolleri."""
         from neurocore.agent import codeindex
@@ -2469,6 +2483,26 @@ class CodingAgent:
                   P("limit", "integer", "En fazla kayıt", default=40)],
                  "çağıranlar + çağrılanlar", ["çağrı", "grafik"],
                  method="callers"),
+
+            wrap("code.hierarchy",
+                 "Sınıf hiyerarşisi: bir sınıfın tabanları ve alt sınıfları "
+                 "(AST'ten çıkarılır). Kalıtım etkisini görmek için kullanın.",
+                 Safety.READ,
+                 [P("ad", required=True, description="Sınıf adı"),
+                  P("limit", "integer", "En fazla kayıt", default=40)],
+                 "tabanlar + alt sınıflar", ["hiyerarşi", "kalıtım"],
+                 method="hierarchy"),
+
+            wrap("code.impact_map",
+                 "Etki haritası: bir fonksiyonu değiştirince kimlerin "
+                 "etkileneceğini SVG/HTML grafik olarak üretir "
+                 "(.neurocore/raporlar/etki-<ad>.html).",
+                 Safety.WRITE,
+                 [P("ad", required=True, description="Sembol adı"),
+                  P("depth", "integer", "Derinlik", default=1),
+                  P("limit", "integer", "Düğüm sınırı", default=25)],
+                 "html raporu + özet", ["etki", "grafik"],
+                 method="impact_map"),
 
             wrap("code.map",
                  "İndeksten proje haritası: dil dağılımı, en büyük dosyalar, "

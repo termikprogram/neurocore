@@ -235,7 +235,8 @@ Tek dosya penceresi yetmez; **ilişkili kodu** bulmak için proje indeksi:
 5. `code.related("yol")` → dosyanın import ettikleri + onu kullananlar
 6. `code.callers("ad")` → **çağrı grafiği** (kim çağırıyor / o kimi çağırıyor);
    etki analizi için (bir fonksiyonu değiştirince ne kırılır?) bunu kullan.
-7. Ancak bundan sonra `code.read_file(start_line=...)` ile ilgili pencereyi oku.
+7. `code.hierarchy("Sinif")` → taban/alt sınıflar · `code.impact_map("ad")` → etki haritası (HTML/SVG)
+8. Ancak bundan sonra `code.read_file(start_line=...)` ile ilgili pencereyi oku.
 İndeks yoksa sembol aramaları boş döner; önce `code.index` çağır.
 
 ## Araştırma (görsel/3B/API işlerinde zorunlu)
@@ -1814,6 +1815,19 @@ class AgentLoop:
             calls = self._extract_tool_calls(response) if use_tools else \
                 self._extract_json_calls(response.text)
 
+            # ⚠ ÖLÇÜLEN HATA: sağlayıcı `id` vermezse `_extract_tool_calls`
+            # kimlik uyduruyordu ama **asistan mesajı** ham `tool_calls`ı
+            # (idsiz) saklıyordu. Sonuç: `tool` mesajları asistan turuyla
+            # eşleşmiyor, sağlayıcı 400 veriyor ya da sonuçlar `user`
+            # mesajına düşüp çoklu çağrıda karışıyordu ("çıktısı verilmedi").
+            # Artık kimlikler iki tarafta da aynı.
+            if use_tools and calls and response.tool_calls:
+                for _i, _c in enumerate(calls):
+                    if _i < len(response.tool_calls):
+                        _ham = dict(response.tool_calls[_i])
+                        _ham["id"] = _c["id"]
+                        response.tool_calls[_i] = _ham
+
             if not calls:
                 # Araç yok → nihai yanıt olmalı.
                 text = (response.text or "").strip()
@@ -1857,6 +1871,30 @@ class AgentLoop:
                     "yanıtını doğrudan yaz. Boş yanıt verme.",
                 ))
                 continue
+
+            # ⚠ Tanı: NC_DUMP=1 iken son mesajları diske yaz (araç sonucu
+            # kaybını ölçmek için). Üretimde sessiz.
+            if __import__("os").environ.get("NC_DUMP"):
+                try:
+                    import json as _jd
+                    from pathlib import Path as _Pd
+
+                    kayit = []
+                    for m in messages[-40:]:
+                        kayit.append({
+                            "role": getattr(m, "role", ""),
+                            "len": len(str(getattr(m, "content", "") or "")),
+                            "tool_call_id": getattr(m, "tool_call_id", ""),
+                            "ids": [c.get("id") for c in
+                                    (getattr(m, "tool_calls", None) or [])],
+                            "bas": str(getattr(m, "content", "") or "")[:160],
+                        })
+                    _Pd(getattr(self, "_workspace", "") or ".").joinpath(
+                        ".neurocore", "last_messages.json").write_text(
+                        _jd.dumps(kayit, ensure_ascii=False, indent=1),
+                        encoding="utf-8")
+                except Exception:
+                    pass
 
             # Mesaj geçmişine asistan turunu ekle.
             # `assistant_message()` sağlayıcının **ham** mesajını kullanır:
@@ -2255,7 +2293,7 @@ class AgentLoop:
             if not isinstance(arguments, dict):
                 arguments = {}
             calls.append({
-                "id": str(raw.get("id", "") or f"call_{len(calls)}"),
+                "id": str(raw.get("id", "") or f"call_{len(calls)}_nc"),
                 "name": name, "args": arguments,
             })
         return calls

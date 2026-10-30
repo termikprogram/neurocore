@@ -182,6 +182,11 @@ def _sema(bag: sqlite3.Connection) -> None:
         kaynak TEXT, hedef TEXT, tur TEXT);
     CREATE INDEX IF NOT EXISTS ix_iliski_hedef ON iliski(hedef);
     CREATE INDEX IF NOT EXISTS ix_iliski_kaynak ON iliski(kaynak);
+    CREATE TABLE IF NOT EXISTS kalitim(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        alt TEXT, taban TEXT, dosya TEXT, satir INTEGER);
+    CREATE INDEX IF NOT EXISTS ix_kalitim_alt ON kalitim(alt);
+    CREATE INDEX IF NOT EXISTS ix_kalitim_taban ON kalitim(taban);
     CREATE TABLE IF NOT EXISTS cagri(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         kaynak_sembol TEXT, hedef_ad TEXT, dosya TEXT, satir INTEGER);
@@ -208,6 +213,7 @@ class DosyaTarama:
     semboller: List[Tuple[int, str, str]]
     iliskiler: List[Tuple[str, str]]
     cagrilar: List[Tuple[str, str, int]] = field(default_factory=list)
+    kalitim: List[Tuple[str, str, int]] = field(default_factory=list)
 
 
 # ─── AST tabanlı çıkarım (regex'ten daha isabetli) ──────────────────────────
@@ -232,6 +238,7 @@ def _python_ast(yol: Path, goreli: str) -> Optional[DosyaTarama]:
     iliskiler: List[Tuple[str, str]] = []
     cagrilar: List[Tuple[str, str, int]] = []
     satir_sayisi = kaynak.count("\n") + (1 if kaynak else 0)
+    kalitim: List[Tuple[str, str, int]] = []
 
     def _ekle(satir: int, ad: str, tur: str) -> None:
         if len(semboller) < SEMBOL_MAKS and ad:
@@ -243,6 +250,13 @@ def _python_ast(yol: Path, goreli: str) -> Optional[DosyaTarama]:
 
         def visit_ClassDef(self, node: "_ast.ClassDef") -> None:
             _ekle(node.lineno, node.name, "class")
+            # ⚠ (b) sınıf hiyerarşisi: taban sınıfları ilişki olarak sakla
+            for taban in node.bases:
+                ad_taban = _cagri_adi(taban)
+                if ad_taban and len(kalitim) < 200:
+                    # alt sınıf → taban sınıf (hiyerarşi sorgusu için)
+                    kalitim.append((node.name[:120], ad_taban[:120],
+                                    node.lineno))
             self.yigin.append(node.name)
             self.generic_visit(node)
             self.yigin.pop()
@@ -284,7 +298,7 @@ def _python_ast(yol: Path, goreli: str) -> Optional[DosyaTarama]:
     del iliskiler[ILISKI_MAKS:]
     del cagrilar[5000:]
     return DosyaTarama(goreli, satir_sayisi, "python", semboller, iliskiler,
-                       cagrilar)
+                       cagrilar, kalitim)
 
 
 def _cagri_adi(dugum: Any) -> str:
@@ -480,6 +494,7 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
         bag.execute("DELETE FROM sembol WHERE path=?", (goreli,))
         bag.execute("DELETE FROM iliski WHERE kaynak=?", (goreli,))
         bag.execute("DELETE FROM cagri WHERE dosya=?", (goreli,))
+        bag.execute("DELETE FROM kalitim WHERE dosya=?", (goreli,))
         try:
             bag.execute("DELETE FROM sembol_fts WHERE path=?", (goreli,))
         except sqlite3.OperationalError:
@@ -508,6 +523,11 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
                 "INSERT INTO cagri(kaynak_sembol, hedef_ad, dosya, satir) "
                 "VALUES(?,?,?,?)",
                 [(k, h, goreli, sat) for k, h, sat in tarama.cagrilar])
+        if tarama.kalitim:
+            bag.executemany(
+                "INSERT INTO kalitim(alt, taban, dosya, satir) "
+                "VALUES(?,?,?,?)",
+                [(a, t, goreli, sat) for a, t, sat in tarama.kalitim])
         sembol_sayi += len(tarama.semboller)
         iliski_sayi += len(tarama.iliskiler)
         if onceki:
@@ -521,6 +541,7 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
         bag.execute("DELETE FROM sembol WHERE path=?", (eski,))
         bag.execute("DELETE FROM iliski WHERE kaynak=?", (eski,))
         bag.execute("DELETE FROM cagri WHERE dosya=?", (eski,))
+        bag.execute("DELETE FROM kalitim WHERE dosya=?", (eski,))
         try:
             bag.execute("DELETE FROM sembol_fts WHERE path=?", (eski,))
         except sqlite3.OperationalError:
@@ -695,3 +716,111 @@ def cagri_grafigi(kok: Path, ad: str, sinir: int = 40) -> Dict[str, Any]:
     return {"ok": True, "ad": ad, "cagiranlar": cagiran,
             "cagardiklari": cagardigi,
             "sayi": len(cagiran) + len(cagardigi)}
+
+def hiyerarsi(kok: Path, ad: str, sinir: int = 40) -> Dict[str, Any]:
+    """
+    Sınıf hiyerarşisi: verilen sınıfın **tabanları** ve **alt sınıfları**.
+
+    Args:
+        kok: Proje kökü (indeksli)
+        ad: Sınıf adı (kısmi eşleşme)
+        sinir: En fazla kayıt
+
+    Returns:
+        {"ok", "ad", "tanim": [...], "tabanlar": [...], "alt_siniflar": [...]}
+    """
+    kok = Path(kok)
+    db = _db_yolu(kok)
+    if not db.exists():
+        return {"ok": False, "error": "indeks yok — önce code.index"}
+    bag = _baglan(db)
+    try:
+        tanim = [dict(r) for r in bag.execute(
+            "SELECT path, satir, ad FROM sembol WHERE ad LIKE ? AND tur='class' "
+            "LIMIT ?", (f"%{ad}%", sinir))]
+        tabanlar = [dict(r) for r in bag.execute(
+            "SELECT alt, taban, dosya, satir FROM kalitim WHERE alt LIKE ? "
+            "LIMIT ?", (f"%{ad}%", sinir))]
+        alt = [dict(r) for r in bag.execute(
+            "SELECT alt, taban, dosya, satir FROM kalitim WHERE taban LIKE ? "
+            "LIMIT ?", (f"%{ad}%", sinir))]
+    finally:
+        bag.close()
+    return {"ok": True, "ad": ad, "tanim": tanim,
+            "tabanlar": tabanlar, "alt_siniflar": alt,
+            "sayi": len(tanim) + len(tabanlar) + len(alt)}
+
+
+def etki_haritasi(kok: Path, ad: str, derinlik: int = 1,
+                  sinir: int = 25) -> Dict[str, Any]:
+    """
+    (c) **Etki haritası**: çağrı grafiğinden SVG/HTML üretir.
+
+    `ad` sembolünü çağıranlar (etki) ve onun çağırdıkları (bağımlılık) bir
+    düğüm-kenar grafiği olarak çizilir; `.neurocore/raporlar/etki-<ad>.html`
+    dosyasına yazılır (tarayıcıda açılabilir, dış kaynak yok).
+
+    Args:
+        kok: Proje kökü
+        ad: Sembol adı
+        derinlik: 1 → yalnız doğrudan komşular
+        sinir: Düğüm başına en fazla komşu
+
+    Returns:
+        {"ok", "ad", "cagiranlar", "cagardiklari", "html", "svg_bytes"}
+    """
+    kok = Path(kok)
+    db = _db_yolu(kok)
+    if not db.exists():
+        return {"ok": False, "error": "indeks yok — önce code.index"}
+    veri = cagri_grafigi(kok, ad, sinir=sinir)
+    cagiran = veri.get("cagiranlar", [])[:sinir]
+    cagardigi = veri.get("cagardiklari", [])[:sinir]
+
+    def _kutu(x: float, y: float, metin: str, renk: str,
+              gen: float = 190, yuk: float = 34) -> str:
+        return (f'<rect x="{x}" y="{y}" width="{gen}" height="{yuk}" rx="8" '
+                f'fill="{renk}" stroke="#3a4250"/>'
+                f'<text x="{x + gen / 2}" y="{y + yuk / 2 + 5}" '
+                f'text-anchor="middle" font-family="Consolas,monospace" '
+                f'font-size="11" fill="#e6e8ee">{metin[:26]}</text>')
+
+    genislik = 640
+    yukseklik = 120 + max(len(cagiran), len(cagardigi)) * 48
+    parcalar = [
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{genislik}" '
+        f'height="{yukseklik}" viewBox="0 0 {genislik} {yukseklik}">',
+        '<rect width="100%" height="100%" fill="#0f1115"/>',
+        _kutu(genislik / 2 - 95, 20, ad, "#2f6b4f"),
+    ]
+    for i, k in enumerate(cagiran):
+        y = 80 + i * 48
+        parcalar.append(f'<line x1="{genislik / 2}" y1="54" '
+                        f'x2="180" y2="{y + 17}" stroke="#8ab4f8" '
+                        f'stroke-width="1.4" opacity="0.7"/>')
+        parcalar.append(_kutu(10, y, k["kaynak_sembol"], "#1d2836"))
+    for i, k in enumerate(cagardigi):
+        y = 80 + i * 48
+        parcalar.append(f'<line x1="{genislik / 2}" y1="54" '
+                        f'x2="{genislik - 190}" y2="{y + 17}" '
+                        f'stroke="#7ee787" stroke-width="1.4" opacity="0.7"/>')
+        parcalar.append(_kutu(genislik - 200, y, k["hedef_ad"], "#243024"))
+    parcalar.append('</svg>')
+    svg = "".join(parcalar)
+
+    rapor = kok / ".neurocore" / "raporlar"
+    rapor.mkdir(parents=True, exist_ok=True)
+    guvenli = "".join(c if c.isalnum() or c in "-_" else "_" for c in ad)[:40]
+    dosya = rapor / f"etki-{guvenli}.html"
+    dosya.write_text(
+        '<!DOCTYPE html><html lang="tr"><head><meta charset="utf-8">'
+        f'<title>Etki haritası: {ad}</title></head>'
+        '<body style="margin:0;background:#0f1115;color:#e6e8ee;'
+        'font-family:system-ui,Segoe UI,sans-serif">'
+        f'<h2 style="margin:16px 18px">{ad} — etki haritası</h2>'
+        f'<div style="margin:0 18px;color:#9aa4b2">'
+        f'{len(cagiran)} çağıran · {len(cagardigi)} çağrılan</div>'
+        f'{svg}</body></html>', encoding="utf-8")
+    return {"ok": True, "ad": ad, "cagiranlar": len(cagiran),
+            "cagardiklari": len(cagardigi),
+            "html": str(dosya), "svg_bytes": len(svg)}
