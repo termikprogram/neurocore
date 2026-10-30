@@ -643,7 +643,7 @@ class CodingAgent:
 
     # ─── proje kod indeksi (milyonlarca satır / binlerce dosya) ───────
 
-    def index(self, zorla: bool = False) -> Dict[str, Any]:
+    def index(self, zorla: bool = False, **_: Any) -> Dict[str, Any]:
         """
         Proje kod indeksini kurar/günceller (SQLite + FTS5).
 
@@ -656,19 +656,29 @@ class CodingAgent:
 
         return codeindex.dizinle(self.workspace, zorla=zorla)
 
-    def index_symbol(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+    def index_symbol(self, ad: str = "", limit: int = 40,
+                     name: str = "", sembol: str = "", **_: Any) -> Dict[str, Any]:
         """Proje genelinde **sembol** arar (tanım satırları)."""
         from neurocore.agent import codeindex
 
-        return codeindex.sembol_ara(self.workspace, ad, sinir=limit)
+        # ⚠ Model `ad` yerine `name`/`sembol` gönderebiliyor; hepsini kabul et.
+        hedef = (ad or name or sembol or "").strip()
+        if not hedef:
+            return {"ok": False, "error": "sembol adı gerekli (ad=...)"}
+        return codeindex.sembol_ara(self.workspace, hedef, sinir=limit)
 
-    def find_references(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+    def find_references(self, ad: str = "", limit: int = 40,
+                        name: str = "", **_: Any) -> Dict[str, Any]:
         """Bir adı kullanan dosyaları/ilişkileri bulur."""
         from neurocore.agent import codeindex
 
-        return codeindex.referanslar(self.workspace, ad, sinir=limit)
+        hedef = (ad or name or "").strip()
+        if not hedef:
+            return {"ok": False, "error": "ad gerekli (ad=...)"}
+        return codeindex.referanslar(self.workspace, hedef, sinir=limit)
 
-    def callers(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+    def callers(self, ad: str = "", limit: int = 40,
+                name: str = "", **_: Any) -> Dict[str, Any]:
         """
         Çağrı grafiği: `ad` fonksiyonunu kim çağırıyor, o kimi çağırıyor.
 
@@ -677,47 +687,66 @@ class CodingAgent:
         """
         from neurocore.agent import codeindex
 
-        return codeindex.cagri_grafigi(self.workspace, ad, sinir=limit)
+        hedef = (ad or name or "").strip()
+        if not hedef:
+            return {"ok": False, "error": "ad gerekli (ad=...)"}
+        return codeindex.cagri_grafigi(self.workspace, hedef, sinir=limit)
 
-    def hierarchy(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+    def hierarchy(self, ad: str = "", limit: int = 40,
+                  name: str = "", **_: Any) -> Dict[str, Any]:
         """Sınıf hiyerarşisi: taban sınıflar + alt sınıflar (AST'ten)."""
         from neurocore.agent import codeindex
 
-        return codeindex.hiyerarsi(self.workspace, ad, sinir=limit)
+        hedef = (ad or name or "").strip()
+        if not hedef:
+            return {"ok": False, "error": "ad gerekli (ad=...)"}
+        return codeindex.hiyerarsi(self.workspace, hedef, sinir=limit)
 
     def impact_map(self, ad: str, depth: int = 1,
-                   limit: int = 25) -> Dict[str, Any]:
+                   limit: int = 25, **_: Any) -> Dict[str, Any]:
         """Etki haritası: çağrı grafiğinden SVG/HTML rapor üretir."""
         from neurocore.agent import codeindex
 
         return codeindex.etki_haritasi(self.workspace, ad, derinlik=depth,
                                        sinir=limit)
 
-    def mro(self, ad: str, limit: int = 12) -> Dict[str, Any]:
+    def mro(self, ad: str = "", limit: int = 12,
+            name: str = "", **_: Any) -> Dict[str, Any]:
         """Kalıtım zinciri (MRO benzeri): tabanların tabanları…"""
         from neurocore.agent import codeindex
 
-        return codeindex.mro(self.workspace, ad, sinir=limit)
+        hedef = (ad or name or "").strip()
+        if not hedef:
+            return {"ok": False, "error": "ad gerekli (ad=...)"}
+        return codeindex.mro(self.workspace, hedef, sinir=limit)
 
-    def types(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+    def types(self, ad: str = "", limit: int = 40,
+              name: str = "", **_: Any) -> Dict[str, Any]:
         """Tip çıkarımı: parametre/dönüş tipleri + atama çıkarımları."""
         from neurocore.agent import codeindex
 
-        return codeindex.tipler(self.workspace, ad, sinir=limit)
+        hedef = (ad or name or "").strip()
+        if not hedef:
+            return {"ok": False, "error": "ad gerekli (ad=...)"}
+        return codeindex.tipler(self.workspace, hedef, sinir=limit)
 
-    def related(self, path: str, limit: int = 30) -> Dict[str, Any]:
+    def related(self, path: str = "", limit: int = 30,
+                dosya: str = "", **_: Any) -> Dict[str, Any]:
         """Dosyanın import ettikleri + onu kullananlar + sembolleri."""
         from neurocore.agent import codeindex
 
-        return codeindex.iliskili_dosyalar(self.workspace, path, sinir=limit)
+        hedef = (path or dosya or "").strip()
+        if not hedef:
+            return {"ok": False, "error": "path gerekli (path=...)"}
+        return codeindex.iliskili_dosyalar(self.workspace, hedef, sinir=limit)
 
-    def map(self) -> Dict[str, Any]:
+    def map(self, **_: Any) -> Dict[str, Any]:
         """İndeksten proje haritası: dil dağılımı, en büyük dosyalar."""
         from neurocore.agent import codeindex
 
         return codeindex.proje_haritasi(self.workspace)
 
-    def outline(self, path: str, limit: int = 400) -> Dict[str, Any]:
+    def outline(self, path: str, limit: int = 400, **_: Any) -> Dict[str, Any]:
         """
         Dosyanın **yapısal haritasını** çıkarır: sınıf/fonksiyon/başlık satırları.
 

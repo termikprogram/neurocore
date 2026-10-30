@@ -1918,6 +1918,38 @@ class AgentLoop:
             # ⚠ (a) TANI: NC_DUMP_REQ=1 → sağlayıcıya giden **tam** mesaj
             # listesi diske yazılır. "Kanıt modele ulaşıyor mu?" sorusunu
             # tahminle değil, istek gövdesiyle yanıtlamak için.
+            # ⚠ (a) SIRALI DÖKÜM: NC_DUMP_SEQ=1 → her istek ayrı satır
+            # (append-only JSONL). Hangi turda hangi araç sonucunun
+            # kaybolduğunu adım adım görmek için.
+            if __import__("os").environ.get("NC_DUMP_SEQ"):
+                try:
+                    import json as _js
+
+                    _satir = {
+                        "t": __import__("time").strftime("%H:%M:%S"),
+                        "adim": len(run.steps),
+                        "mesaj": len(messages),
+                        "roller": [getattr(m, "role", "") for m in messages],
+                        "tool_ids": [getattr(m, "tool_call_id", "") for m in messages
+                                     if getattr(m, "role", "") == "tool"],
+                        "asistan_ids": [
+                            [c.get("id") for c in
+                             (getattr(m, "tool_calls", None) or [])]
+                            for m in messages if getattr(m, "role", "") == "assistant"],
+                        "icerik": [len(str(getattr(m, "content", "") or ""))
+                                   for m in messages],
+                        "araclar": list(selected_tools or []),
+                        "tool_bas": [str(getattr(m, "content", "") or "")[:90]
+                                     for m in messages
+                                     if getattr(m, "role", "") == "tool"],
+                    }
+                    Path(getattr(self, "_workspace", "") or ".").joinpath(
+                        ".neurocore", "last_requests.jsonl").open(
+                        "a", encoding="utf-8").write(
+                        _js.dumps(_satir, ensure_ascii=False) + "\n")
+                except Exception:
+                    pass
+
             if __import__("os").environ.get("NC_DUMP_REQ"):
                 try:
                     import json as _jr
@@ -3452,10 +3484,20 @@ class AgentLoop:
             (döngü devam eder), False → kapı uygun (yanıt kabul edilebilir)
         """
         madde = self._madde_sayisi(task)
+        logger.info(f"MADDE-KAPI izleme: madde={madde} "
+                    f"arac={sum(1 for s in run.steps if s.kind in ('tool','shell') and s.ok)} "
+                    f"sayac={self._counter.get('madde_kapisi', 0)}")
         if madde < 2:
             return False
-        arac_adim = sum(1 for s in run.steps if s.kind in ("tool", "shell")
-                        and s.ok)
+        # ⚠ ÖLÇÜLEN KÖK NEDEN: kanıt `run.steps`'ten sayılıyordu; plan/puzzle/
+        # hiyerarşi adımları da "tool" olarak işaretlendiği için sayı şişiyordu
+        # (4 maddelik görevde 8 "araç" görünüyor, kapı hiç tetiklenmiyordu).
+        # Doğru ölçü: modele **gerçekten ulaşan** araç sonucu mesajları.
+        arac_adim = sum(1 for m in messages
+                        if getattr(m, "role", "") == "tool")
+        arac_adim += sum(
+            1 for m in messages
+            if str(getattr(m, "content", "")).startswith(("Araç sonucu", "KANIT")))
         if arac_adim >= madde:
             return False
         if self._counter.get("madde_kapisi", 0) >= 2:
