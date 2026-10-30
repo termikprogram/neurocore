@@ -1875,6 +1875,8 @@ class AgentLoop:
                     # araç kanıtı iste (bounded: en fazla 2 kez).
                     if self._madde_kapisi(task, run, messages):
                         continue
+                    if self._kanit_hatirlat(task, text, run, messages):
+                        continue
                     # ⚠ BİLİŞSEL KAPI: yanıt araç kanıtıyla destekleniyor mu?
                     # Desteklenmiyorsa **bir kez** düzeltme istenir (bounded).
                     text = self._cevabi_dogrula(task, text, run)
@@ -3524,6 +3526,49 @@ class AgentLoop:
             "araç çağrısı yaptın. Her madde için ayrı araç çağır ve sonucu "
             "göster (örn. code.find_symbol, code.callers, code.related, "
             "code.map). Kanıtsız madde bırakma. Sonra yanıtı yaz."))
+        return True
+
+    def _kanit_hatirlat(self, task: str, cevap: str, run: AgentRun,
+                        messages: List[LLMMessage]) -> bool:
+        """
+        ⚠ KANIT HATIRLATMA KAPISI
+
+        Ölçüldü: `code.find_symbol("can_eat")` sonucu (game_logic.gd:23) modele
+        ulaştığı halde yanıt "can_eat tanımı yok" diyebiliyor. Bu kapı, görevdeki
+        sembol adı araç çıktısında geçiyorsa ve yanıt "yok/doğrulanamadı"
+        diyorsa kanıtı **aynen alıntılayıp** düzeltme ister (en fazla 1 kez).
+
+        Returns:
+            True → düzeltme mesajı eklendi (döngü devam eder)
+        """
+        if self._counter.get("kanit_hatirlat"):
+            return False
+        if not re.search(r"(yok|doğrulanamadı|bulunamadı|kayıt yok)", cevap,
+                         re.IGNORECASE):
+            return False
+        adaylar = [a.strip() for a in re.findall(r"`([A-Za-z_][\w]{2,60})`", task)
+                   if len(a.strip()) > 2]
+        kanit: List[str] = []
+        for m in messages:
+            icerik = str(getattr(m, "content", "") or "")
+            if not icerik:
+                continue
+            for ad in adaylar[:4]:
+                for satir in icerik.splitlines():
+                    if ad in satir and len(kanit) < 8:
+                        kanit.append(f"`{ad}` → {satir.strip()[:150]}")
+        if not kanit:
+            return False
+        self._counter["kanit_hatirlat"] = 1
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="verify", ok=False,
+            text=f"kanıt hatırlatma: {len(kanit)} satır alıntılandı"))
+        messages.append(LLMMessage(
+            "user",
+            "Yanıtında 'yok/doğrulanamadı' dedin ama araç çıktısında şu "
+            "kanıtlar VAR:\n" + "\n".join(f"- {k}" for k in kanit)
+            + "\nBu satırları **aynen** yanıtına koy ve soruları bu kanıta "
+              "göre yanıtla. Kanıt varsa 'yok' deme."))
         return True
 
     def _madde_kaniti(self, task: str, run: AgentRun,
