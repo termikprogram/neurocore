@@ -77,10 +77,10 @@ HIER_MIN_UZUNLUK = 80
 MUTLAK_ADIM = 400
 
 #: Bağlam sıkıştırma eşiği: bu kadar mesajdan sonra özetlenir
-SIKISTIRMA_ESIK = 24
+SIKISTIRMA_ESIK = 40
 
 #: Sıkıştırmada korunacak son mesaj sayısı
-SIKISTIRMA_TUT = 10
+SIKISTIRMA_TUT = 16
 
 
 def _kisa_args(args: Any) -> str:
@@ -813,6 +813,8 @@ class AgentLoop:
         self._kontrol: Any = None
         self._kontrol_yol: Any = None
         self._kontrol_arsiv: Any = None
+        #: ⚠ Okunan dosyaların son hâli (sıkıştırma silmesin diye)
+        self._okuma_kasasi: Dict[str, str] = {}
         #: ⚠ Son ortam ön denetimi (OS + araçlar + eksik paketler)
         self._ortam: Dict[str, Any] = {}
         #: ⚠ A) Walkthrough cevabı bekleniyor mu (çalışma durur)
@@ -1257,6 +1259,17 @@ class AgentLoop:
         """
         lines: List[str] = []
 
+        # ⚠ Savunma: eski/başka üreticiler `data`yı JSON string olarak
+        # verebiliyor (ölçüldü: read_file içeriği kayboluyordu). Çöz.
+        if isinstance(data, str):
+            try:
+                import json as _json1
+                cozulen = _json1.loads(data)
+                if isinstance(cozulen, dict):
+                    data = cozulen
+            except Exception:
+                pass
+
         # ── Komut çıktıları ──
         if "stdout" in data and "returncode" in data:
             mark = "✓" if data.get("ok") else "✗"
@@ -1272,8 +1285,8 @@ class AgentLoop:
                 value = str(data.get(key, "") or "").strip()
                 if not value:
                     continue
-                if len(value) > 2500:
-                    value = value[:2500] + f"\n… (+{len(value) - 2500} karakter)"
+                if len(value) > 8000:
+                    value = value[:8000] + f"\n… (+{len(value) - 8000} karakter)"
                 lines.append(f"\n**{label}:**\n```\n{value}\n```")
             for extra in ("diagnosis", "analysis", "fix"):
                 block = data.get(extra)
@@ -1320,8 +1333,9 @@ class AgentLoop:
             if data.get("note"):
                 lines.append(f"- {data['note']}")
             content = str(data.get("content", ""))
-            if len(content) > 3000:
-                content = content[:3000] + "\n… (kısaltıldı)"
+            if len(content) > 14000:
+                content = content[:14000] + (
+                    "\n… (kısaltıldı — devamı için start_line kullanın)")
             lines.append(f"\n```{data.get('language', '')}\n{content}\n```")
             return lines
 
@@ -1833,7 +1847,14 @@ class AgentLoop:
                     return
 
                 step_made_progress = True
-                result_text = result.render(max_chars=6000)
+                # ⚠ ÖLÇÜLEN HATA: render() ham JSON'u 6000 karaktere
+                # kesiyordu; ajan dosyanın yalnız başını görüyordu
+                # ('main.gd 1-460 okunmadı'). Yapılandırılmış biçim.
+                result_text = self._summarize_result(result)
+                try:
+                    self._okuma_hatirla(tool_name, result, result_text)
+                except Exception:
+                    pass
 
                 if use_tools and call_id:
                     messages.append(LLMMessage(
@@ -3062,6 +3083,42 @@ class AgentLoop:
         except Exception as exc:
             logger.debug(f"Puzzle genişletme atlandı: {exc}")
 
+    def _okuma_hatirla(self, tool_name: str, result: Any,
+                       metin: str) -> None:
+        """
+        Okunan dosyanın içeriğini **bellekte** tutar.
+
+        ⚠ ÖLÇÜLEN HATA: bağlam sıkıştırması (eşik 24, tutulan 10) okunan
+        dosyanın içeriğini 10 mesaj sonra siliyordu; ajan "dosyayı görmedim"
+        diyerek düzeltme yapmıyordu. Bu bellek sıkıştırmadan sonra da içeriği
+        modele taşır (en fazla 3 dosya, her biri 3500 karakter).
+        """
+        ad = str(tool_name or "")
+        if not ad.endswith("read_file"):
+            return
+        data = getattr(result, "data", None)
+        if not isinstance(data, dict):
+            return
+        yol = str(data.get("path") or "").strip()
+        icerik = str(data.get("content") or "")
+        if not yol or not icerik:
+            return
+        if len(icerik) > 3500:
+            icerik = icerik[:3500] + "\n… (bellekte kısaltıldı)"
+        self._okuma_kasasi[yol] = icerik
+        while len(self._okuma_kasasi) > 3:
+            self._okuma_kasasi.pop(next(iter(self._okuma_kasasi)))
+
+    def _okuma_ozeti(self) -> str:
+        """Sıkıştırma özetine eklenecek 'son okunan dosyalar' bloğu."""
+        if not self._okuma_kasasi:
+            return ""
+        parcalar = ["\n\nSON OKUNAN DOSYALAR (sıkıştırmadan korundu):"]
+        for yol, icerik in self._okuma_kasasi.items():
+            parcalar.append(f"\n--- {yol} ---\n{icerik}")
+        return "\n".join(parcalar)[:11000]
+
+
     def _baglami_sikistir(self, messages: List[LLMMessage]) -> None:
         """
         ⚠ Uzun çalışmada mesaj geçmişini **hedef özetine** indirger.
@@ -3088,7 +3145,8 @@ class AgentLoop:
         yeni = list(messages[:1])
         yeni.append(LLMMessage(
             "user",
-            "ÖZET (eski mesajlar sıkıştırıldı):\n" + ozet))
+            "ÖZET (eski mesajlar sıkıştırıldı):\n" + ozet
+            + self._okuma_ozeti()))
         yeni.extend(kuyruk)
         onceki = len(messages)
         messages[:] = yeni

@@ -349,6 +349,35 @@ class ToolParameter:
         return schema
 
 
+def _kirp_veri(veri: Any, butce: int, _derinlik: int = 0) -> Any:
+    """
+    Araç çıktısını **yapıyı bozmadan** kısaltır.
+
+    ⚠ `json.dumps(...)[:max_chars]` yöntemi sözlüğü string'e çeviriyordu ve
+    ajan dosya içeriğini göremiyordu. Bu yardımcı; sözlük/liste yapısını
+    korur, yalnız uzun metin alanlarından keser.
+
+    Args:
+        veri: Araç çıktısı (sözlük, liste veya skaler)
+        butce: Metin alanları için üst sınır (karakter)
+        _derinlik: Özyineleme koruması
+
+    Returns:
+        Kısaltılmış ama aynı yapıda veri
+    """
+    if _derinlik > 6:
+        return "…"
+    if isinstance(veri, str):
+        if len(veri) > butce:
+            return veri[:butce] + f"\n… (+{len(veri) - butce} karakter)"
+        return veri
+    if isinstance(veri, dict):
+        return {k: _kirp_veri(v, butce, _derinlik + 1) for k, v in veri.items()}
+    if isinstance(veri, (list, tuple)):
+        return [_kirp_veri(v, butce, _derinlik + 1) for v in list(veri)[:500]]
+    return veri
+
+
 @dataclass
 class ToolResult:
     """
@@ -379,9 +408,14 @@ class ToolResult:
             try:
                 text = json.dumps(self.data, ensure_ascii=False, default=str)
                 if len(text) > max_chars:
-                    payload["data"] = text[:max_chars]
+                    # ⚠ ÖLÇÜLEN HATA: burada data JSON **string**'e çevriliyordu;
+                    # ajanın araç-mesajı biçimlendiricisi sözlük beklediği için
+                    # dosya içeriği kayboluyor, model yalnızca meta veri görüyordu.
+                    # Artık **yapı korunur**, uzun metin alanları tek tek kısaltılır.
+                    payload["data"] = _kirp_veri(self.data, max_chars)
                     payload["truncated"] = True
-                    payload["note"] = f"çıktı {len(text)} karakterden kısaltıldı"
+                    payload["note"] = (f"çıktı {len(text)} karakterden "
+                                       "kısaltıldı (alanlar korundu)")
                 else:
                     payload["data"] = self.data
             except (TypeError, ValueError):
