@@ -1833,6 +1833,21 @@ class AgentLoop:
                         _ham = dict(response.tool_calls[_i])
                         _ham["id"] = _c["id"]
                         response.tool_calls[_i] = _ham
+                    # ⚠ ÖLÇÜLEN KÖK NEDEN: `assistant_message()` sağlayıcının
+                    # **ham** mesajını olduğu gibi gönderir; yalnız
+                    # `response.tool_calls` kimliğini yamamak yetmiyordu.
+                    # Ham mesajdaki kimlikler de eşitlenmezse `tool`
+                    # sonuçları "yetim" sayılıp `_mesajlari_onar` tarafından
+                    # SİLİNİYOR ve model "araç çıktısı yok" diyordu.
+                    _ham_mesaj = getattr(response, "raw_message", None)
+                    if isinstance(_ham_mesaj, dict):
+                        _ham_cagrilar = list(
+                            _ham_mesaj.get("tool_calls") or [])
+                        for _i, _tc in enumerate(_ham_cagrilar):
+                            if _i < len(calls):
+                                _tc["id"] = calls[_i]["id"]
+                        if _ham_cagrilar:
+                            _ham_mesaj["tool_calls"] = _ham_cagrilar
                 else:
                     # ⚠ ÖLÇÜLEN HATA: sağlayıcı çağrılarından biri ayrıştırılamazsa
                     # (ör. boş ad) indeksler kayıyor, `tool` mesajları "yetim"
@@ -1845,6 +1860,12 @@ class AgentLoop:
                                       "arguments": json.dumps(_c["args"],
                                                               ensure_ascii=False)}}
                         for _c in calls]
+                    # Ham mesaj eski (uyumsuz) kimlikleri taşıyorsa bırak:
+                    # `assistant_message()` normalize edilmiş listeden üretsin.
+                    try:
+                        response.raw_message = {}
+                    except Exception:
+                        pass
 
             if not calls:
                 # Araç yok → nihai yanıt olmalı.
@@ -1893,6 +1914,26 @@ class AgentLoop:
                     "yanıtını doğrudan yaz. Boş yanıt verme.",
                 ))
                 continue
+
+            # ⚠ (a) TANI: NC_DUMP_REQ=1 → sağlayıcıya giden **tam** mesaj
+            # listesi diske yazılır. "Kanıt modele ulaşıyor mu?" sorusunu
+            # tahminle değil, istek gövdesiyle yanıtlamak için.
+            if __import__("os").environ.get("NC_DUMP_REQ"):
+                try:
+                    import json as _jr
+
+                    _kayit = [{
+                        "role": getattr(m, "role", ""),
+                        "len": len(str(getattr(m, "content", "") or "")),
+                        "tool_call_id": getattr(m, "tool_call_id", ""),
+                        "content": str(getattr(m, "content", "") or "")[:4000],
+                    } for m in messages]
+                    Path(getattr(self, "_workspace", "") or ".").joinpath(
+                        ".neurocore", "last_request.json").write_text(
+                        _jr.dumps(_kayit, ensure_ascii=False, indent=1),
+                        encoding="utf-8")
+                except Exception:
+                    pass
 
             # ⚠ Tanı: NC_DUMP=1 iken son mesajları diske yaz (araç sonucu
             # kaybını ölçmek için). Üretimde sessiz.
