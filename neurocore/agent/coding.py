@@ -854,7 +854,15 @@ class CodingAgent:
         files_searched = 0
         truncated = False
 
-        for file_path in self._walk(root, DEFAULT_EXCLUDES, max_depth=12):
+        # ⚠ ÖLÇÜLDÜ: `path` bir DOSYA olduğunda `_walk` boş dönüyordu
+        # (files_searched=0, count=0) ve ajan "karşılığı yok" sanıp doğru
+        # düzenlemeyi reddediyordu. Artık dosya yolu doğrudan taranır.
+        if root.is_file():
+            adaylar = [root]
+        else:
+            adaylar = self._walk(root, DEFAULT_EXCLUDES, max_depth=12)
+
+        for file_path in adaylar:
             if file_glob and not fnmatch.fnmatch(file_path.name, file_glob):
                 continue
             if file_path.stat().st_size > 4 * 1024 * 1024:

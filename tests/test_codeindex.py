@@ -181,3 +181,20 @@ class TestGdignore(unittest.TestCase):
         self.assertEqual(s["sayi"], 0)
         s2 = codeindex.sembol_ara(kok, "a")
         self.assertGreaterEqual(s2["sayi"], 1)
+
+class TestSearchTextDosya(unittest.TestCase):
+    """⚠ search_text'e DOSYA yolu verilince de aramalı (ölçülen hata)."""
+
+    def test_dosya_yolu(self) -> None:
+        from neurocore.agent.coding import CodingAgent
+
+        kok = Path(tempfile.mkdtemp(prefix="nc-search-"))
+        (kok / "a.gd").write_text("func hedef():\n\tpass\n", encoding="utf-8")
+        (kok / "b.gd").write_text("func diger():\n\tpass\n", encoding="utf-8")
+        ajan = CodingAgent()
+        ajan.initialize(workspace=str(kok))
+        r = ajan.search_text("hedef", path="a.gd")
+        self.assertGreaterEqual(r["count"], 1)
+        self.assertEqual(r["files_searched"], 1)
+        r2 = ajan.search_text("hedef", path="b.gd")
+        self.assertEqual(r2["count"], 0)
