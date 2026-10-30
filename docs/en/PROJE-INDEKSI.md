@@ -36,7 +36,15 @@ sembol_fts (FTS5)
 | `code.related` | dosyanın import ettikleri + onu kullananlar + sembolleri |
 | `code.callers` | çağrı grafiği: kim çağırıyor / o kimi çağırıyor |
 | `code.hierarchy` | sınıf hiyerarşisi: taban + alt sınıflar (`kalitim` tablosu) |
-| `code.impact_map` | etki haritası: SVG/HTML grafik (`.neurocore/raporlar/etki-<ad>.html`) |
+| `code.impact_map` | **etkileşimli** etki haritası (HTML+JS, tıkla-seç, `.neurocore/raporlar/etki-<ad>.html`) |
+| `code.mro` | kalıtım zinciri (tabanların tabanları, döngü korumalı) |
+| `code.types` | tip çıkarımı: parametre/dönüş ek açıklamaları + `x = Sinif()` atamaları |
+
+### Çok sorulu görevlerde kanıt kapısı
+
+Görevde **2+ madde** varsa ve araç çağrısı sayısı maddeden azsa ajan uyarılır
+ve her madde için ayrı araç çağırması istenir (en fazla 2 kez). Ölçüldü:
+4 maddelik görevde model 1 araç çağırıyordu.
 
 ### AST tabanlı çıkarım
 

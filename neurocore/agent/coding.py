@@ -693,6 +693,18 @@ class CodingAgent:
         return codeindex.etki_haritasi(self.workspace, ad, derinlik=depth,
                                        sinir=limit)
 
+    def mro(self, ad: str, limit: int = 12) -> Dict[str, Any]:
+        """Kalıtım zinciri (MRO benzeri): tabanların tabanları…"""
+        from neurocore.agent import codeindex
+
+        return codeindex.mro(self.workspace, ad, sinir=limit)
+
+    def types(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+        """Tip çıkarımı: parametre/dönüş tipleri + atama çıkarımları."""
+        from neurocore.agent import codeindex
+
+        return codeindex.tipler(self.workspace, ad, sinir=limit)
+
     def related(self, path: str, limit: int = 30) -> Dict[str, Any]:
         """Dosyanın import ettikleri + onu kullananlar + sembolleri."""
         from neurocore.agent import codeindex
@@ -2503,6 +2515,22 @@ class CodingAgent:
                   P("limit", "integer", "Düğüm sınırı", default=25)],
                  "html raporu + özet", ["etki", "grafik"],
                  method="impact_map"),
+
+            wrap("code.mro",
+                 "Kalıtım zinciri: bir sınıfın tabanları, tabanlarının "
+                 "tabanları (MRO benzeri sıralı liste).",
+                 Safety.READ,
+                 [P("ad", required=True, description="Sınıf adı"),
+                  P("limit", "integer", "En fazla derinlik", default=12)],
+                 "zincir", ["kalıtım", "mro"], method="mro"),
+
+            wrap("code.types",
+                 "Tip çıkarımı: fonksiyon parametre/dönüş tipleri ve "
+                 "`x = Sinif()` atamalarından çıkarılan tipler.",
+                 Safety.READ,
+                 [P("ad", required=True, description="Sembol veya tip adı"),
+                  P("limit", "integer", "En fazla kayıt", default=40)],
+                 "tip kayıtları", ["tip", "çıkarım"], method="types"),
 
             wrap("code.map",
                  "İndeksten proje haritası: dil dağılımı, en büyük dosyalar, "

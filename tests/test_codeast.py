@@ -211,15 +211,68 @@ class TestEtkiHaritasi(unittest.TestCase):
         codeindex.dizinle(kok)
         e = codeindex.etki_haritasi(kok, "hedef", sinir=10)
         self.assertTrue(e["ok"])
-        self.assertGreaterEqual(e["cagiranlar"], 2)
+        self.assertGreaterEqual(e["dugum"], 2)
         html = Path(e["html"])
         self.assertTrue(html.exists())
         icerik = html.read_text(encoding="utf-8")
         self.assertIn("<svg", icerik)
         self.assertIn("hedef", icerik)
-        self.assertGreater(e["svg_bytes"], 100)
+        self.assertGreater(e["bytes"], 500)
 
     def test_indeks_yok(self) -> None:
         kok = Path(tempfile.mkdtemp(prefix="nc-etki2-"))
         e = codeindex.etki_haritasi(kok, "x")
         self.assertFalse(e["ok"])
+
+class TestMroVeTipler(unittest.TestCase):
+    """(b) MRO zinciri ve tip çıkarımı."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.kok = Path(tempfile.mkdtemp(prefix="nc-mro-"))
+        (cls.kok / "a.py").write_text(
+            "class A:\n    pass\n"
+            "class B(A):\n    pass\n"
+            "class C(B):\n    pass\n"
+            "\n"
+            "def isle(x: C, y: 'A') -> B:\n"
+            "    z = C()\n"
+            "    return z\n",
+            encoding="utf-8")
+        codeindex.dizinle(cls.kok)
+
+    def test_mro_zinciri(self) -> None:
+        m = codeindex.mro(self.kok, "C")
+        self.assertEqual(m["zincir"][:3], ["C", "B", "A"])
+        self.assertGreaterEqual(m["derinlik"], 2)
+
+    def test_tipler_parametre_donus(self) -> None:
+        t = codeindex.tipler(self.kok, "isle")
+        turler = {(r["tur"], r["tip"]) for r in t["kayitlar"]}
+        self.assertIn(("parametre", "C"), turler)
+        self.assertIn(("dönüş", "B"), turler)
+
+    def test_tipler_atama(self) -> None:
+        t = codeindex.tipler(self.kok, "z")
+        self.assertTrue(any(r["tur"] == "atama" and r["tip"] == "C"
+                            for r in t["kayitlar"]))
+
+
+class TestEtkilesimliHarita(unittest.TestCase):
+    """(c) tıklanabilir HTML: gömülü veri + JS."""
+
+    def test_js_ve_veri(self) -> None:
+        kok = Path(tempfile.mkdtemp(prefix="nc-int-"))
+        (kok / "a.py").write_text(
+            "def hedef():\n    return 1\n"
+            "def kullanan():\n    return hedef()\n", encoding="utf-8")
+        codeindex.dizinle(kok)
+        e = codeindex.etki_haritasi_interaktif(kok, "hedef", sinir=5)
+        self.assertTrue(e["ok"])
+        icerik = Path(e["html"]).read_text(encoding="utf-8")
+        self.assertIn("onclick", icerik)
+        self.assertIn("const VERI =", icerik)
+        self.assertIn("<svg", icerik)
+        self.assertIn("tıkla", icerik.lower())
+        self.assertNotIn('src="http', icerik)   # dış kaynak yok
+        self.assertNotIn('href="http', icerik)

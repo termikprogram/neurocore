@@ -235,9 +235,15 @@ Tek dosya penceresi yetmez; **ilişkili kodu** bulmak için proje indeksi:
 5. `code.related("yol")` → dosyanın import ettikleri + onu kullananlar
 6. `code.callers("ad")` → **çağrı grafiği** (kim çağırıyor / o kimi çağırıyor);
    etki analizi için (bir fonksiyonu değiştirince ne kırılır?) bunu kullan.
-7. `code.hierarchy("Sinif")` → taban/alt sınıflar · `code.impact_map("ad")` → etki haritası (HTML/SVG)
+7. `code.hierarchy("Sinif")` → taban/alt sınıflar · `code.mro("Sinif")` → kalıtım zinciri ·
+   `code.types("ad")` → parametre/dönüş tipleri · `code.impact_map("ad")` → etkileşimli etki haritası
 8. Ancak bundan sonra `code.read_file(start_line=...)` ile ilgili pencereyi oku.
 İndeks yoksa sembol aramaları boş döner; önce `code.index` çağır.
+
+## Çok maddeli görevler
+Görevde numaralı maddeler varsa (1), 2., - gibi) **her madde için ayrı araç
+çağır** ve sonucu göster. Madde sayısından az araç çağırırsan sistem seni
+uyarır; kanıtsız madde bırakma.
 
 ## Araştırma (görsel/3B/API işlerinde zorunlu)
 Görsel, 3B, ışık/gölge/materyal, ses veya motor-API işlerinde **en az bir kez**
@@ -1821,17 +1827,33 @@ class AgentLoop:
             # eşleşmiyor, sağlayıcı 400 veriyor ya da sonuçlar `user`
             # mesajına düşüp çoklu çağrıda karışıyordu ("çıktısı verilmedi").
             # Artık kimlikler iki tarafta da aynı.
-            if use_tools and calls and response.tool_calls:
-                for _i, _c in enumerate(calls):
-                    if _i < len(response.tool_calls):
+            if use_tools and calls:
+                if len(response.tool_calls) == len(calls):
+                    for _i, _c in enumerate(calls):
                         _ham = dict(response.tool_calls[_i])
                         _ham["id"] = _c["id"]
                         response.tool_calls[_i] = _ham
+                else:
+                    # ⚠ ÖLÇÜLEN HATA: sağlayıcı çağrılarından biri ayrıştırılamazsa
+                    # (ör. boş ad) indeksler kayıyor, `tool` mesajları "yetim"
+                    # sayılıp `_mesajlari_onar` tarafından SİLİNİYOR; model
+                    # "araç çıktısı yok" diyordu. Asistan turunu tamamen
+                    # normalize et: kimlikler birebir eşleşsin.
+                    response.tool_calls = [
+                        {"id": _c["id"], "type": "function",
+                         "function": {"name": _c["name"],
+                                      "arguments": json.dumps(_c["args"],
+                                                              ensure_ascii=False)}}
+                        for _c in calls]
 
             if not calls:
                 # Araç yok → nihai yanıt olmalı.
                 text = (response.text or "").strip()
                 if text:
+                    # ⚠ (a) MADDE KAPISI: çok sorulu görevde her madde için
+                    # araç kanıtı iste (bounded: en fazla 2 kez).
+                    if self._madde_kapisi(task, run, messages):
+                        continue
                     # ⚠ BİLİŞSEL KAPI: yanıt araç kanıtıyla destekleniyor mu?
                     # Desteklenmiyorsa **bir kez** düzeltme istenir (bounded).
                     text = self._cevabi_dogrula(task, text, run)
@@ -3368,6 +3390,103 @@ class AgentLoop:
                 parcalar.append(f"[{step.tool}] {step.result}")
         metin = "\n".join(parcalar)
         return metin[-sinir:] if len(metin) > sinir else metin
+
+    #: Görevde kaç ayrı madde var? (1) / 2. / - gibi işaretler)
+    MADDE_KALIBI = re.compile(r"^\s*(?:\d+[\).]|[-*])\s+", re.MULTILINE)
+
+    def _madde_sayisi(self, task: str) -> int:
+        """Görevdeki numaralı/madde işaretli satır sayısı."""
+        return len(self.MADDE_KALIBI.findall(task or ""))
+
+    def _madde_kapisi(self, task: str, run: AgentRun,
+                      messages: List[LLMMessage]) -> bool:
+        """
+        ⚠ (a) ÇOK SORULU GÖREV KAPISI
+
+        Ölçüldü: 4 soruluk görevde model yalnız **1** araç çağırdı ve
+        "doğrulanamadı" diyerek yanıtladı. Her madde için kanıt iste.
+
+        Returns:
+            True → modele "eksik maddeler için araç çağır" mesajı eklendi
+            (döngü devam eder), False → kapı uygun (yanıt kabul edilebilir)
+        """
+        madde = self._madde_sayisi(task)
+        if madde < 2:
+            return False
+        arac_adim = sum(1 for s in run.steps if s.kind in ("tool", "shell")
+                        and s.ok)
+        if arac_adim >= madde:
+            return False
+        if self._counter.get("madde_kapisi", 0) >= 2:
+            # ⚠ Model hâlâ araç çağırmıyorsa kanıtı SUNUCU toplar (bir kez)
+            if not self._counter.get("madde_kaniti"):
+                self._counter["madde_kaniti"] = 1
+                eklenen = self._madde_kaniti(task, run, messages)
+                if eklenen:
+                    messages.append(LLMMessage(
+                        "user",
+                        f"Yukarıda {eklenen} araç sonucu **sunucu tarafından** "
+                        "sağlandı. Şimdi her maddeyi bu kanıtlara dayanarak "
+                        "yanıtla; kanıt yoksa 'doğrulanamadı' yaz."))
+                    return True
+            return False
+        self._counter["madde_kapisi"] = self._counter.get("madde_kapisi", 0) + 1
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="verify", ok=False,
+            text=(f"madde kapısı: {madde} madde var, {arac_adim} araç çağrısı "
+                  "— kanıt isteniyor")))
+        messages.append(LLMMessage(
+            "user",
+            f"Bu görevde **{madde} ayrı madde** var ama yalnız {arac_adim} "
+            "araç çağrısı yaptın. Her madde için ayrı araç çağır ve sonucu "
+            "göster (örn. code.find_symbol, code.callers, code.related, "
+            "code.map). Kanıtsız madde bırakma. Sonra yanıtı yaz."))
+        return True
+
+    def _madde_kaniti(self, task: str, run: AgentRun,
+                      messages: List[LLMMessage]) -> int:
+        """
+        ⚠ Çok maddeli görevde model araç çağırmıyorsa **sunucu** çağırır.
+
+        Ölçüldü: 4 soruluk görevde model 1 araç çağırdı; kalan 3 madde
+        "doğrulanamadı" olarak yanıtlandı. Burada görev metninden sembol ve
+        dosya adları çıkarılıp `code.*` indeks araçları **doğrudan** çalıştırılır
+        ve sonuçlar modele kanıt olarak verilir.
+
+        Returns:
+            Eklenen kanıt sayısı
+        """
+        if self._registry is None:
+            return 0
+        semboller = re.findall(r"`([A-Za-z_][\w]{2,60})`", task or "")
+        dosyalar = re.findall(r"([\w./\\-]+\.(?:py|gd|js|ts|rs|go|cs|md))",
+                              task or "")
+        adimlar: List[tuple] = []
+        if not getattr(self, "_ortam", None):
+            adimlar.append(("code.index", {}))
+        for ad in dict.fromkeys(semboller[:4]):
+            adimlar.append(("code.find_symbol", {"ad": ad}))
+            adimlar.append(("code.callers", {"ad": ad}))
+        for yol in dict.fromkeys(dosyalar[:3]):
+            adimlar.append(("code.related", {"path": yol}))
+        adimlar.append(("code.map", {}))
+        eklenen = 0
+        for ad, arguman in adimlar:
+            try:
+                sonuc = self._registry.call(ad, arguman)
+            except Exception as exc:
+                logger.debug(f"kanıt aracı atlandı ({ad}): {exc}")
+                continue
+            if sonuc is None:
+                continue
+            metin = self._summarize_result(sonuc)
+            messages.append(LLMMessage(
+                "user", f"KANIT (sunucu çalıştırdı · {ad}):\n{metin}"))
+            self._add_step(run, AgentStep(
+                index=len(run.steps), kind="tool", ok=True,
+                tool=ad, args=arguman, text="madde kanıtı"))
+            eklenen += 1
+        return eklenen
 
     def _cevabi_dogrula(self, task: str, cevap: str, run: AgentRun) -> str:
         """
