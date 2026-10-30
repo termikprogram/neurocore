@@ -126,6 +126,23 @@ learning in the background.
 The installer **detects your GPU and picks the matching PyTorch build**.
 Nothing is hard-coded to CUDA 12.4 any more.
 
+
+### Windows — one-click setup
+
+```bat
+Kurulum.bat
+```
+
+Python is found automatically (`.venv` → `py` launcher → PATH → common folders → registry).
+No machine-specific path is hardcoded. If your Python lives elsewhere:
+
+```bat
+set NC_PYTHON=C:\tools\Python312\python.exe
+Kurulum.bat
+```
+
+Need the system interpreter instead of a virtualenv? `Kurulum.bat --no-venv`.
+
 ```powershell
 git clone https://github.com/termikprogram/neurocore.git
 cd neurocore

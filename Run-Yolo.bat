@@ -27,18 +27,22 @@ if /i not "!ANSWER!"=="Y" (
     exit /b 0
 )
 
-set "PYEXE="
-for /f "delims=" %%P in ('where python 2^>nul') do (
-    if not defined PYEXE set "PYEXE=%%P"
-)
-if not defined PYEXE if exist "E:\AppsTools\PYTHON\Python3.10\python.exe" set "PYEXE=E:\AppsTools\PYTHON\Python3.10\python.exe"
-if not defined PYEXE if exist "C:\Python312\python.exe" set "PYEXE=C:\Python312\python.exe"
-if not defined PYEXE if exist "C:\Python311\python.exe" set "PYEXE=C:\Python311\python.exe"
-
+REM --- Locate Python (portable: tools\py_bul.bat) ---------------------------
+REM  Tespit: NC_PYTHON > .venv > py launcher > PATH > ortak klasorler > registry
+call "%~dp0tools\py_bul.bat"
 if not defined PYEXE (
-    echo   [ERROR] Python not found.
+    echo   [ERROR] Python 3.10+ was not found on this machine.
+    echo.
+    echo   Install it:   winget install --id Python.Python.3.12 -e
+    echo   or point to:  set NC_PYTHON=C:\path\to\python.exe
+    echo.
     pause
     exit /b 1
+)
+if defined PYARGS (
+    echo   Python : %PYVER%  ^(%PYEXE% %PYARGS%^)
+) else (
+    echo   Python : %PYVER%  ^(%PYEXE%^)
 )
 
 set "PYWEXE=!PYEXE:python.exe=pythonw.exe!"

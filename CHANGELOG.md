@@ -6,6 +6,32 @@ Sürümleme: [SemVer](https://semver.org/lang/tr/)
 
 ---
 
+## [0.2.1] — 2026-10-30
+
+### Düzeltildi
+
+**Kurulum diğer makinelerde çalışmıyordu** — betiklerde bu makineye özel
+`E:\AppsTools\PYTHON\Python3.10\python.exe` yolu vardı ve başka bir
+bilgisayarda Python farklı yerde olduğu için kurulum/başlatma başarısız oluyordu.
+
+- `tools/py_bul.bat` — **taşınabilir Python bulucu** (tek kaynak):
+  `NC_PYTHON` → `.venv` → `py -3.13…3.10 / py -3` → `PATH` →
+  `%LOCALAPPDATA%\Programs\Python\PythonXY` → `%ProgramFiles%`/`C:\PythonXY`
+  → **registry** (`PythonCore\InstallPath`).
+  Her aday **>= 3.10** doğrulanır; uygun olmayan atlanır.
+- `Kurulum.bat` — bulucuyu kullanır; `.venv` oluşturur (varsayılan),
+  `--no-venv` ile sistem Python'u, `NC_PYTHON` ile özel yol; Python yoksa
+  `winget install --id Python.Python.3.12 -e` komutunu yazar.
+- `Run.bat`, `Run-Yolo.bat`, `Run-Debug.bat`, `Run-Here.bat` — sabit yol
+  kaldırıldı, hepsi `tools\py_bul.bat` kullanıyor.
+- `kur_istemci.ps1` — PowerShell tarafında aynı sıra (py launcher + registry
+  dahil) ve sürüm doğrulaması.
+
+**Ölçüm:** bulucu `.venv\Scripts\python.exe` (3.10.11) seçiyor; `NC_PYTHON`
+verildiğinde ilk onu kullanıyor; `Kurulum.bat --help` tespit sırasını yazıyor.
+
+---
+
 ## [0.2.0] — 2026-10-30
 
 Bu sürüm **büyük projelerde çalışma** üzerine kurulu; her başlıkta ölçüm var.

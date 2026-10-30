@@ -1,6 +1,6 @@
 # Installation
 
-**Version 0.1.0** · Windows 10/11 · Linux/macOS (beta) · Python 3.10+ · PyTorch
+**Version 0.2.1** · Windows 10/11 · Linux/macOS (beta) · Python 3.10+ · PyTorch
 
 ---
 
@@ -14,6 +14,46 @@
 | Disk | 10 GB | 30 GB | checkpoints are large |
 | GPU | — | NVIDIA 8 GB+ | runs without a GPU too |
 | NVIDIA driver | — | ≥ 550 | for training/inference |
+
+## 1b · Portable Python detection (no machine-specific paths)
+
+`Kurulum.bat`, `Run*.bat` and `kur_istemci.ps1` **do not hardcode** a Python
+path. They share one finder — `tools\py_bul.bat` — which tries, in order:
+
+```
+1. %NC_PYTHON%                      explicit override (full path to python.exe)
+2. .venv\Scripts\python.exe        project virtual environment
+3. py -3.13 … py -3.10, py -3       official Windows launcher
+4. python / python3 on PATH
+5. %LOCALAPPDATA%\Programs\Python\PythonXY\python.exe
+6. %ProgramFiles%\PythonXY\python.exe  and  C:\PythonXY\python.exe
+7. HKCU/HKLM\Software\Python\PythonCore registry (ExecutablePath)
+```
+
+Every candidate must report **3.10 or newer**; otherwise it is skipped with a warning.
+
+```powershell
+# different machine, Python in a custom folder:
+set NC_PYTHON=C:\tools\Python312\python.exe
+Kurulum.bat
+
+# skip the virtualenv (install into the system interpreter):
+Kurulum.bat --no-venv
+
+# see the detection order:
+Kurulum.bat --help
+```
+
+If nothing is found the installer prints the exact `winget` command:
+
+```powershell
+winget install --id Python.Python.3.12 -e
+```
+
+**Measured:** finder resolves `.venv\Scripts\python.exe` (3.10.11) in < 1 s;
+`NC_PYTHON` override honoured first.
+
+---
 
 ### GPU profiles (measured on this repository)
 

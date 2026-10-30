@@ -276,23 +276,65 @@ if ($SadeceKontrol) {
 # ══════════════════════════════════════════════════════════════════════
 Adim 1 "Python"
 if (-not $PythonExe) {
+    # ⚠ Taşınabilir tespit: makineye özel yol YOK.
+    # Sıra: NC_PYTHON > .venv > py launcher > PATH > ortak klasörler > registry
     $pAdaylar = @()
-    $cmd = Get-Command python -ErrorAction SilentlyContinue
-    if ($cmd) { $pAdaylar += $cmd.Source }
-    $pAdaylar += @(
-        "E:\AppsTools\PYTHON\Python3.10\python.exe",
-        "$env:LOCALAPPDATA\Programs\Python\Python310\python.exe",
-        "C:\Python310\python.exe",
-        "C:\Program Files\Python310\python.exe"
-    )
-    foreach ($a in $pAdaylar) {
-        if ($a -and (Test-Path $a)) { $PythonExe = $a; break }
+    if ($env:NC_PYTHON -and (Test-Path $env:NC_PYTHON)) { $pAdaylar += $env:NC_PYTHON }
+    $venvPy = Join-Path (Get-Location) ".venv\Scripts\python.exe"
+    if (Test-Path $venvPy) { $pAdaylar += $venvPy }
+
+    # py launcher (resmi Windows başlatıcısı) — en güvenilir yol
+    $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+    if ($pyLauncher) {
+        foreach ($v in @("-3.13", "-3.12", "-3.11", "-3.10", "-3")) {
+            try {
+                $cikti = & py $v -c "import sys;print(sys.executable)" 2>$null
+                if ($LASTEXITCODE -eq 0 -and $cikti) { $pAdaylar += "$cikti".Trim() }
+            } catch { }
+        }
+    }
+
+    foreach ($ad in @("python", "python3")) {
+        $cmd = Get-Command $ad -ErrorAction SilentlyContinue
+        if ($cmd -and $cmd.Source) { $pAdaylar += $cmd.Source }
+    }
+
+    foreach ($v in @("313", "312", "311", "310")) {
+        $pAdaylar += @(
+            "$env:LOCALAPPDATA\Programs\Python\Python$v\python.exe",
+            "$env:ProgramFiles\Python$v\python.exe",
+            "C:\Python$v\python.exe"
+        )
+    }
+
+    # Registry (PythonCore InstallPath)
+    foreach ($kok in @("HKCU:\Software\Python\PythonCore",
+                       "HKLM:\Software\Python\PythonCore",
+                       "HKLM:\Software\WOW6432Node\Python\PythonCore")) {
+        try {
+            Get-ChildItem $kok -ErrorAction Stop | ForEach-Object {
+                $ip = (Get-ItemProperty "$($_.PSPath)\InstallPath" -ErrorAction SilentlyContinue)
+                if ($ip -and $ip.ExecutablePath) { $pAdaylar += $ip.ExecutablePath }
+            }
+        } catch { }
+    }
+
+    foreach ($a in ($pAdaylar | Select-Object -Unique)) {
+        if (-not $a -or -not (Test-Path $a)) { continue }
+        try {
+            $v = & $a -c "import sys;print('%d.%d.%d' % sys.version_info[:3])" 2>$null
+            if ($LASTEXITCODE -eq 0 -and $v -and ([version]$v -ge [version]"3.10")) {
+                $PythonExe = $a
+                break
+            }
+        } catch { }
     }
 }
 if (-not $PythonExe -or -not (Test-Path $PythonExe)) {
-    Hata "Python bulunamadı"
-    Write-Host "    Kur: https://www.python.org/downloads/release/python-31011/"
-    Write-Host "    (kurulumda 'Add python.exe to PATH' işaretle)"
+    Hata "Python 3.10+ bulunamadı"
+    Write-Host "    Kur    : winget install --id Python.Python.3.12 -e"
+    Write-Host "    veya   : https://www.python.org/downloads/  ('Add python.exe to PATH')"
+    Write-Host "    özel yol: `$env:NC_PYTHON = 'C:\yol\python.exe'"
     exit 1
 }
 $surum = & $PythonExe -c "import sys;print('%d.%d.%d' % sys.version_info[:3])"
