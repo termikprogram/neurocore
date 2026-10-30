@@ -126,3 +126,40 @@ class TestGitNumstat(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+class TestCokDilliParite(unittest.TestCase):
+    """(b) Parite kontrolü yalnız GDScript için değil."""
+
+    def _kok(self) -> Path:
+        return Path(tempfile.mkdtemp(prefix="nc-cok-"))
+
+    def test_python_parite(self) -> None:
+        kok = self._kok()
+        (kok / "eski.py").write_text(
+            "def a():\n    pass\n\nclass K:\n    def m(self):\n        pass\n",
+            encoding="utf-8")
+        (kok / "yeni.py").write_text("def a():\n    pass\n", encoding="utf-8")
+        r = refactor.parite_kontrol(kok, "eski.py", "yeni.py")
+        self.assertIn("m", r["eksik"])
+        self.assertNotIn("a", r["eksik"])
+
+    def test_js_parite(self) -> None:
+        kok = self._kok()
+        (kok / "eski.js").write_text(
+            "function a() {}\nexport function b() {}\nconst c = () => 1;\n",
+            encoding="utf-8")
+        (kok / "yeni.js").write_text("function a() {}\n", encoding="utf-8")
+        r = refactor.parite_kontrol(kok, "eski.js", "yeni.js")
+        self.assertIn("b", r["eksik"])
+        self.assertIn("c", r["eksik"])
+
+    def test_rust_go(self) -> None:
+        kok = self._kok()
+        (kok / "e.rs").write_text("pub fn a() {}\nfn b() {}\n", encoding="utf-8")
+        (kok / "y.rs").write_text("pub fn a() {}\n", encoding="utf-8")
+        r = refactor.parite_kontrol(kok, "e.rs", "y.rs")
+        self.assertIn("b", r["eksik"])
+        (kok / "e.go").write_text("func A() {}\nfunc B() {}\n", encoding="utf-8")
+        (kok / "y.go").write_text("func A() {}\n", encoding="utf-8")
+        r2 = refactor.parite_kontrol(kok, "e.go", "y.go")
+        self.assertIn("B", r2["eksik"])

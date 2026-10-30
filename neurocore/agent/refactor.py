@@ -150,16 +150,31 @@ def parite_kontrol(kok: str | Path, eski: str, yeni: str) -> Dict[str, Any]:
     Returns:
         {"ok", "eski_sayi", "yeni_sayi", "eksik", "fazla", "mesaj"}
     """
-    desen = re.compile(r"^\s*func\s+([A-Za-z_]\w*)", re.MULTILINE)
+    # ⚠ (b) Dil bazlı sembol kalıpları: GDScript + Python + JS/TS + Rust/Go
+    desenler = [
+        re.compile(r"^\s*func\s+([A-Za-z_]\w*)", re.MULTILINE),          # GDScript
+        re.compile(r"^\s*(?:async\s+)?def\s+([A-Za-z_]\w*)", re.MULTILINE),  # Python
+        re.compile(r"^\s*(?:export\s+)?(?:async\s+)?function\s+([A-Za-z_$][\w$]*)",
+                   re.MULTILINE),                                          # JS/TS
+        re.compile(r"^\s*(?:export\s+)?(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*"
+                   r"(?:async\s*)?\(", re.MULTILINE),                     # JS ok fonksiyon
+        re.compile(r"^\s*(?:pub\s+)?(?:async\s+)?fn\s+(\w+)", re.MULTILINE),  # Rust
+        re.compile(r"^func\s+(?:\([^)]*\)\s*)?(\w+)", re.MULTILINE),   # Go
+    ]
     sonuc: Dict[str, Any] = {"ok": True, "eski_sayi": 0, "yeni_sayi": 0,
                              "eksik": [], "fazla": [], "mesaj": ""}
     try:
         a = Path(kok) / eski
         b = Path(kok) / yeni
-        eski_adlar = set(desen.findall(a.read_text(encoding="utf-8",
-                                                   errors="replace")))
-        yeni_adlar = set(desen.findall(b.read_text(encoding="utf-8",
-                                                   errors="replace")))
+        def _adlar(yol: Path) -> set:
+            metin = yol.read_text(encoding="utf-8", errors="replace")
+            toplam: set = set()
+            for d in desenler:
+                toplam.update(d.findall(metin))
+            return toplam
+
+        eski_adlar = _adlar(a)
+        yeni_adlar = _adlar(b)
     except OSError as exc:
         return {"ok": False, "error": str(exc)}
     sonuc["eski_sayi"] = len(eski_adlar)
