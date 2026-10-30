@@ -16,15 +16,19 @@ REM ==========================================================================
 setlocal
 cd /d "%~dp0"
 
-set PYTHON=E:\AppsTools\PYTHON\Python3.10\python.exe
-set PYTHONUNBUFFERED=1
-set PYTHONIOENCODING=utf-8
-
-if not exist "%PYTHON%" (
-    echo HATA: Python bulunamadi: %PYTHON%
+REM --- Python (tasinabilir: tools\py_bul.bat) ------------------------------
+call "%~dp0tools\py_bul.bat"
+if not defined PYEXE (
+    echo HATA: Python 3.10+ bulunamadi.
+    echo   Kur    : winget install --id Python.Python.3.12 -e
+    echo   Ozel   : set NC_PYTHON=C:\yol\python.exe
     pause
     exit /b 1
 )
+set "PYTHON=%PYEXE%"
+set "PYTHON_ARGS=%PYARGS%"
+set PYTHONUNBUFFERED=1
+set PYTHONIOENCODING=utf-8
 
 echo ==========================================================================
 echo   SUREKLI EGITIM - myAi
@@ -33,10 +37,10 @@ echo.
 
 if /i "%~1"=="devamli" (
     echo Mod: SINIRSIZ - bilgisayar kapanana kadar
-    "%PYTHON%" -u -X utf8 tools\egitim_bekcisi.py --devamli --parti-saat 2
+    "%PYTHON%" %PYTHON_ARGS% -u -X utf8 tools\egitim_bekcisi.py --devamli --parti-saat 2
 ) else (
     echo Mod: 8 SAAT
-    "%PYTHON%" -u -X utf8 tools\egitim_bekcisi.py --toplam-saat 8 --parti-saat 2
+    "%PYTHON%" %PYTHON_ARGS% -u -X utf8 tools\egitim_bekcisi.py --toplam-saat 8 --parti-saat 2
 )
 
 echo.
