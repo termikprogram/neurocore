@@ -163,3 +163,52 @@ class TestCokDilliParite(unittest.TestCase):
         (kok / "y.go").write_text("func A() {}\n", encoding="utf-8")
         r2 = refactor.parite_kontrol(kok, "e.go", "y.go")
         self.assertIn("B", r2["eksik"])
+
+class TestBitisDenetimi(unittest.TestCase):
+    """Bitişte (süre sınırı dahil) kayıp tespiti ve geri alma."""
+
+    def test_kayip_tespit_edilir(self) -> None:
+        """637/22 oranı kayıp sayılmalı (gerçek olay)."""
+        rapor = refactor.numstat_denetle(
+            "22\t637\tscripts/player/player_controller.gd\n")
+        self.assertTrue(rapor["kayip_suphesi"])
+        self.assertLess(rapor["oran"], 0.5)   # geri alma eşiği
+
+    def test_geri_alma_esigi(self) -> None:
+        """Oran 0.5 üstündeyse şüphe yok (geri alma tetiklenmez)."""
+        rapor = refactor.numstat_denetle(
+            "300\t400\tscripts/x.gd\n")
+        self.assertGreaterEqual(rapor["oran"], 0.5)
+        self.assertFalse(rapor["kayip_suphesi"])
+
+    def test_git_checkout_komutu_calisir(self) -> None:
+        """Gerçek git deposunda checkout dosyayı geri getirir."""
+        import shutil
+        import subprocess
+
+        if not shutil.which("git"):
+            self.skipTest("git yok")
+        kok = Path(tempfile.mkdtemp(prefix="nc-restore-"))
+        subprocess.run(["git", "init", "-q", str(kok)], check=False)
+        subprocess.run(["git", "-C", str(kok), "config", "user.email", "t@t"],
+                       check=False)
+        subprocess.run(["git", "-C", str(kok), "config", "user.name", "t"],
+                       check=False)
+        dosya = kok / "a.gd"
+        # 200 satırlık dosya (eşiği aşsın: SILME_ESIK=150)
+        dosya.write_text(
+            "\n".join(f"func f{i}():\n\tpass" for i in range(100)),
+            encoding="utf-8")
+        subprocess.run(["git", "-C", str(kok), "add", "."], check=False)
+        subprocess.run(["git", "-C", str(kok), "commit", "-qm", "ilk"],
+                       check=False)
+        # ajan gibi "sadece sil": 200 satırın 160'ını sil
+        dosya.write_text(
+            "\n".join(f"func f{i}():\n\tpass" for i in range(20)),
+            encoding="utf-8")
+        ham = refactor.git_numstat(kok)
+        rapor = refactor.numstat_denetle(ham)
+        self.assertTrue(rapor["kayip_suphesi"])
+        subprocess.run(["git", "-C", str(kok), "checkout", "--", "a.gd"],
+                       check=False)
+        self.assertIn("func f99", dosya.read_text(encoding="utf-8"))

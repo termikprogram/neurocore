@@ -1384,8 +1384,12 @@ class AgentLoop:
             if data.get("note"):
                 lines.append(f"- {data['note']}")
             content = str(data.get("content", ""))
-            if len(content) > 14000:
-                content = content[:14000] + (
+            # ⚠ ÖLÇÜLDÜ: 790 satırlık bir gövde ~31K karakter; 14K sınırı
+            # yüzünden ajan fonksiyonun tamamını göremiyor ve cerrahi
+            # düzenleme yapmayı reddediyordu (TitoWarWeb, 3 tur).
+            sinir = int(__import__("os").environ.get("NC_ICERIK_SINIRI") or 36000)
+            if len(content) > sinir:
+                content = content[:sinir] + (
                     "\n… (kısaltıldı — devamı için start_line kullanın)")
             lines.append(f"\n```{data.get('language', '')}\n{content}\n```")
             return lines
@@ -3090,6 +3094,12 @@ class AgentLoop:
         except Exception as exc:
             logger.debug(f"Teslim tazeleme atlandı: {exc}")
 
+        # ⚠ Refactor kaybı denetimi (her bitişte, süre sınırı dahil)
+        try:
+            self._refactor_bitis_denetle(run)
+        except Exception as exc:
+            logger.debug(f"Bitiş refactor denetimi atlandı: {exc}")
+
         # ⚠ Proje teslimi: başlatma betikleri + sunum (yalnız tamamlanınca)
         if tamamlandi:
             try:
@@ -3719,6 +3729,67 @@ class AgentLoop:
               "silinen bloğu geri getir (git checkout -- <dosya>).\n"
               "- Parite testini çalıştır; geçmeden bitirme."))
         return True
+
+    def _refactor_bitis_denetle(self, run: AgentRun) -> None:
+        """
+        ⚠ BİTİŞTE REFACTOR DENETİMİ (süre sınırıyla biten koşular için)
+
+        ÖLÇÜLDÜ (TitoWarWeb): koşu 900 sn sınırıyla bittiği için nihai-yanıt
+        dalına hiç girmedi; `_refactor_denetle` çalışmadı ve ajan 637 satırı
+        sildi (22 eklendi) — fark edilmedi. Bu yöntem her koşu bitişinde
+        `git diff --numstat` ölçer.
+
+        Davranış:
+          - Kayıp şüphesi varsa `run.ok=False`, neden yazılır, adım eklenir.
+          - Değişiklikler commit'siz ve silinen/eklenen oranı < 0.5 ise
+            ilgili dosya `git checkout -- <dosya>` ile **geri alınır**
+            (NC_OTOMATIK_GERI_AL=0 ile kapatılabilir).
+        """
+        if not getattr(self, "_workspace", None):
+            return
+        if self._counter.get("refactor_bitis"):
+            return
+        self._counter["refactor_bitis"] = 1
+        try:
+            from neurocore.agent.refactor import git_numstat, numstat_denetle
+
+            ham = git_numstat(self._workspace)
+            if not ham.strip():
+                return
+            rapor = numstat_denetle(ham)
+        except Exception as exc:
+            logger.debug(f"Bitiş denetimi atlandı: {exc}")
+            return
+        if not rapor.get("kayip_suphesi"):
+            return
+        otomatik = (__import__("os").environ.get("NC_OTOMATIK_GERI_AL")
+                    or "1").strip() not in ("0", "false", "off")
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="error", ok=False,
+            text=(f"refactor kaybı: {rapor['silinen']} silinen / "
+                  f"{rapor['eklenen']} eklenen")))
+        logger.error(f"REFACTOR KAYBI: {rapor['mesaj']}")
+        run.ok = False
+        run.reason = (f"refactor kaybı: {rapor['silinen']} silinen / "
+                      f"{rapor['eklenen']} eklenen")
+        geri = ""
+        if otomatik and rapor["oran"] < 0.5:
+            import subprocess as _sp
+
+            for dosya in [d["yol"] for d in rapor["dosyalar"]
+                          if d["silinen"] > d["eklenen"]][:3]:
+                try:
+                    _sp.run(["git", "-C", str(self._workspace), "checkout", "--",
+                             dosya], capture_output=True, text=True, timeout=30)
+                    geri += f"\n- `{dosya}` geri alındı (git checkout)"
+                    logger.warning(f"Refactor geri alma: {dosya}")
+                except Exception as exc:
+                    logger.warning(f"Geri alınamadı ({dosya}): {exc}")
+        run.answer = (str(run.answer or "") +
+                      "\n\n⚠ **REFACTOR KAYBI TESPİT EDİLDİ** — "
+                      f"{rapor['silinen']} satır silindi, {rapor['eklenen']} "
+                      "satır eklendi. Taşıma yapılmadı, kod silindi."
+                      + geri)
 
     def _kanit_hatirlat(self, task: str, cevap: str, run: AgentRun,
                         messages: List[LLMMessage]) -> bool:
