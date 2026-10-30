@@ -233,7 +233,9 @@ Tek dosya penceresi yetmez; **ilişkili kodu** bulmak için proje indeksi:
 3. `code.find_symbol("ad")` → tanım satırları (ms düzeyi)
 4. `code.find_references("ad")` → kullanan dosyalar (import grafiği)
 5. `code.related("yol")` → dosyanın import ettikleri + onu kullananlar
-6. Ancak bundan sonra `code.read_file(start_line=...)` ile ilgili pencereyi oku.
+6. `code.callers("ad")` → **çağrı grafiği** (kim çağırıyor / o kimi çağırıyor);
+   etki analizi için (bir fonksiyonu değiştirince ne kırılır?) bunu kullan.
+7. Ancak bundan sonra `code.read_file(start_line=...)` ile ilgili pencereyi oku.
 İndeks yoksa sembol aramaları boş döner; önce `code.index` çağır.
 
 ## Araştırma (görsel/3B/API işlerinde zorunlu)
@@ -449,6 +451,15 @@ CORE_TOOLS: Tuple[str, ...] = (
     "code.list_directory",
     "code.search_text",
     "code.find_files",
+    # ⚠ ÖLÇÜLDÜ: indeks araçları seçilen listeye girmeyince ajan "can_eat
+    # nerede tanımlı / kim çağırıyor" sorularını indekssiz aradı ve bulamadı.
+    "code.index",
+    "code.map",
+    "code.find_symbol",
+    "code.find_references",
+    "code.callers",
+    "code.related",
+    "code.outline",
     "code.edit_file",
     "code.create_file",
     "code.run_command",
@@ -1456,17 +1467,74 @@ class AgentLoop:
             return lines
 
         # ── Genel düşüş ──
-        for key, value in list(data.items())[:20]:
-            if value in (None, "", 0, False, [], {}):
-                continue
-            if isinstance(value, (dict, list)):
-                preview = json.dumps(value, ensure_ascii=False, default=str)
-                if len(preview) > 240:
-                    preview = preview[:240] + "…"
-                lines.append(f"- {key}: `{preview}`")
-            else:
-                lines.append(f"- {key}: {str(value)[:240]}")
+        # ⚠ ÖLÇÜLEN HATA: sözlük/liste değerleri 240 karakterlik JSON olarak
+        # kesiliyordu; `code.find_symbol` sonucu (tanım satırı) ve
+        # `code.callers` listeleri modele ULAŞMIYORDU ("doğrulanamadı").
+        # Artık yapı korunarak, öğe öğe ve okunur biçimde yazılır.
+        lines.extend(self._veri_satirlari(data))
         return lines or ["- (çıktı yok)"]
+
+    def _veri_satirlari(self, veri: Any, derinlik: int = 0,
+                        anahtar: str = "") -> List[str]:
+        """
+        Araç çıktısını **okunur** satırlara çevirir (yapı korunur).
+
+        Args:
+            veri: Sözlük, liste veya skaler
+            derinlik: İç içe seviye (en fazla 3)
+            anahtar: Üst anahtar adı (etiket için)
+
+        Returns:
+            Metin satırları
+        """
+        satirlar: List[str] = []
+        etiket = f"{anahtar}: " if anahtar else ""
+
+        def _kisa(deger: Any, sinir: int = 90) -> str:
+            metin = str(deger)
+            return metin if len(metin) <= sinir else metin[:sinir] + "…"
+
+        if isinstance(veri, dict):
+            # önce skalerler
+            for k, v in list(veri.items())[:24]:
+                if v in (None, "", 0, False, [], {}):
+                    continue
+                if isinstance(v, dict):
+                    if derinlik < 2:
+                        satirlar.append(f"{etiket}{k}:")
+                        satirlar.extend("  " + x for x in
+                                        self._veri_satirlari(v, derinlik + 1))
+                    else:
+                        satirlar.append(f"{etiket}{k}: " + _kisa(
+                            json.dumps(v, ensure_ascii=False, default=str)))
+                elif isinstance(v, list):
+                    if not v:
+                        continue
+                    satirlar.append(f"{etiket}{k} ({len(v)}):")
+                    for oge in v[:20]:
+                        if isinstance(oge, dict):
+                            parcalar = [f"{ik}={_kisa(iv, 60)}"
+                                        for ik, iv in list(oge.items())[:6]
+                                        if iv not in (None, "", [], {})]
+                            satirlar.append("  - " + " · ".join(parcalar))
+                        else:
+                            satirlar.append("  - " + _kisa(oge))
+                    if len(v) > 20:
+                        satirlar.append(f"  … (+{len(v) - 20} öğe)")
+                else:
+                    satirlar.append(f"{etiket}{k}: {_kisa(v)}")
+        elif isinstance(veri, list):
+            for oge in veri[:25]:
+                if isinstance(oge, dict):
+                    parcalar = [f"{ik}={_kisa(iv, 60)}"
+                                for ik, iv in list(oge.items())[:6]
+                                if iv not in (None, "", [], {})]
+                    satirlar.append("- " + " · ".join(parcalar))
+                else:
+                    satirlar.append("- " + _kisa(oge))
+        else:
+            satirlar.append(_kisa(veri, 400))
+        return satirlar
 
     # ─── Model Tabanlı Yol ──────────────────────────────────────────────
 

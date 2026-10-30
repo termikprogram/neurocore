@@ -34,6 +34,18 @@ sembol_fts (FTS5)
 | `code.find_symbol` | proje genelinde tanım arar |
 | `code.find_references` | adı kullanan dosyalar (import grafiği) |
 | `code.related` | dosyanın import ettikleri + onu kullananlar + sembolleri |
+| `code.callers` | çağrı grafiği: kim çağırıyor / o kimi çağırıyor |
+
+### AST tabanlı çıkarım
+
+- **Python**: gerçek `ast` ağacı — docstring/yorum eşleşmez, nitelikli adlar
+  (`Sinif.metod`) ve iç içe tanımlar doğru çıkar, `ast.Call` ile çağrılar bulunur
+- **GDScript**: girinti izleyen yapısal tarayıcı (`class_name`/`func`/`signal`/
+  `const`, `preload` ilişkisi, fonksiyon içi çağrılar)
+- **Diğer diller**: satır kalıpları (regex)
+
+Ölçüm — kendi projemiz (327 dosya): indeks **3,2 sn** · 7.373 sembol ·
+4.341 ilişki · **48.425 çağrı** · `code.callers` sorgusu **13 ms**.
 
 ## Ajan protokolü
 

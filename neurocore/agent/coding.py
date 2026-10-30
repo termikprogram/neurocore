@@ -668,6 +668,17 @@ class CodingAgent:
 
         return codeindex.referanslar(self.workspace, ad, sinir=limit)
 
+    def callers(self, ad: str, limit: int = 40) -> Dict[str, Any]:
+        """
+        Çağrı grafiği: `ad` fonksiyonunu kim çağırıyor, o kimi çağırıyor.
+
+        AST ile çıkarılır (python `ast`, GDScript yapısal tarama); regex
+        tahmininden daha isabetlidir.
+        """
+        from neurocore.agent import codeindex
+
+        return codeindex.cagri_grafigi(self.workspace, ad, sinir=limit)
+
     def related(self, path: str, limit: int = 30) -> Dict[str, Any]:
         """Dosyanın import ettikleri + onu kullananlar + sembolleri."""
         from neurocore.agent import codeindex
@@ -2449,6 +2460,15 @@ class CodingAgent:
                  [P("path", required=True, description="Dosya yolu"),
                   P("limit", "integer", "En fazla sonuç", default=30)],
                  "ilişkili dosyalar", ["ilişki", "keşif"]),
+
+            wrap("code.callers",
+                 "Çağrı grafiği: bir fonksiyonu kimler çağırıyor ve o hangi "
+                 "fonksiyonları çağırıyor. Etki analizi için kullanın.",
+                 Safety.READ,
+                 [P("ad", required=True, description="Fonksiyon/metot adı"),
+                  P("limit", "integer", "En fazla kayıt", default=40)],
+                 "çağıranlar + çağrılanlar", ["çağrı", "grafik"],
+                 method="callers"),
 
             wrap("code.map",
                  "İndeksten proje haritası: dil dağılımı, en büyük dosyalar, "

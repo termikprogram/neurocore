@@ -43,7 +43,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -52,7 +52,7 @@ from neurocore.utils.logger import NeuroCoreLogger
 logger = NeuroCoreLogger.get_logger("agent.codeindex")
 
 #: İndeks sürümü (şema değişirse artır)
-SEMVER = 3
+SEMVER = 4
 
 #: Taranacak uzantılar → dil
 DILLER: Dict[str, str] = {
@@ -182,6 +182,11 @@ def _sema(bag: sqlite3.Connection) -> None:
         kaynak TEXT, hedef TEXT, tur TEXT);
     CREATE INDEX IF NOT EXISTS ix_iliski_hedef ON iliski(hedef);
     CREATE INDEX IF NOT EXISTS ix_iliski_kaynak ON iliski(kaynak);
+    CREATE TABLE IF NOT EXISTS cagri(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kaynak_sembol TEXT, hedef_ad TEXT, dosya TEXT, satir INTEGER);
+    CREATE INDEX IF NOT EXISTS ix_cagri_hedef ON cagri(hedef_ad);
+    CREATE INDEX IF NOT EXISTS ix_cagri_kaynak ON cagri(kaynak_sembol);
     CREATE TABLE IF NOT EXISTS ustveri(anahtar TEXT PRIMARY KEY, deger TEXT);
     """)
     # FTS5 varsa sembol aramasını hızlandır
@@ -202,6 +207,164 @@ class DosyaTarama:
     dil: str
     semboller: List[Tuple[int, str, str]]
     iliskiler: List[Tuple[str, str]]
+    cagrilar: List[Tuple[str, str, int]] = field(default_factory=list)
+
+
+# ─── AST tabanlı çıkarım (regex'ten daha isabetli) ──────────────────────────
+
+def _python_ast(yol: Path, goreli: str) -> Optional[DosyaTarama]:
+    """
+    Python dosyasını **ast** ile ayrıştırır: sınıf/fonksiyon/sabit,
+    import'lar ve **fonksiyon içi çağrılar** (çağrı grafiği için).
+
+    Regex'e göre avantajı: yorumlar/string'ler yanlış eşleşmez, nitelikli
+    adlar (`Sinif.metod`) ve iç içe tanımlar doğru çıkar.
+    """
+    import ast as _ast
+
+    try:
+        kaynak = yol.read_text(encoding="utf-8", errors="replace")
+        agac = _ast.parse(kaynak)
+    except (OSError, SyntaxError, ValueError):
+        return None
+
+    semboller: List[Tuple[int, str, str]] = []
+    iliskiler: List[Tuple[str, str]] = []
+    cagrilar: List[Tuple[str, str, int]] = []
+    satir_sayisi = kaynak.count("\n") + (1 if kaynak else 0)
+
+    def _ekle(satir: int, ad: str, tur: str) -> None:
+        if len(semboller) < SEMBOL_MAKS and ad:
+            semboller.append((satir, ad[:120], tur))
+
+    class Gez(_ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.yigin: List[str] = []
+
+        def visit_ClassDef(self, node: "_ast.ClassDef") -> None:
+            _ekle(node.lineno, node.name, "class")
+            self.yigin.append(node.name)
+            self.generic_visit(node)
+            self.yigin.pop()
+
+        def _fonksiyon(self, node: Any) -> None:
+            ad = ".".join(self.yigin + [node.name])
+            _ekle(node.lineno, node.name, "func")
+            self.yigin.append(node.name)
+            for alt in _ast.walk(node):
+                if isinstance(alt, _ast.Call):
+                    hedef = _cagri_adi(alt.func)
+                    if hedef and len(cagrilar) < 5000:
+                        cagrilar.append((ad[:160], hedef[:120], alt.lineno))
+            self.yigin.pop()
+
+        def visit_FunctionDef(self, node: "_ast.FunctionDef") -> None:
+            self._fonksiyon(node)
+
+        def visit_AsyncFunctionDef(self, node: "_ast.AsyncFunctionDef") -> None:
+            self._fonksiyon(node)
+
+        def visit_Import(self, node: "_ast.Import") -> None:
+            for alias in node.names:
+                iliskiler.append((alias.name, "import"))
+
+        def visit_ImportFrom(self, node: "_ast.ImportFrom") -> None:
+            modul = node.module or ""
+            for alias in node.names:
+                iliskiler.append((f"{modul}.{alias.name}" if modul else alias.name,
+                                  "import"))
+
+        def visit_Assign(self, node: "_ast.Assign") -> None:
+            for hedef in node.targets:
+                if isinstance(hedef, _ast.Name) and hedef.id.isupper():
+                    _ekle(node.lineno, hedef.id, "const")
+
+    Gez().visit(agac)
+    # sınırları uygula
+    del iliskiler[ILISKI_MAKS:]
+    del cagrilar[5000:]
+    return DosyaTarama(goreli, satir_sayisi, "python", semboller, iliskiler,
+                       cagrilar)
+
+
+def _cagri_adi(dugum: Any) -> str:
+    """ast.Call func düğümünden okunur ad üretir (Name / Attribute zinciri)."""
+    import ast as _ast
+
+    if isinstance(dugum, _ast.Name):
+        return dugum.id
+    if isinstance(dugum, _ast.Attribute):
+        taban = _cagri_adi(dugum.value)
+        return f"{taban}.{dugum.attr}" if taban else dugum.attr
+    if isinstance(dugum, _ast.Call):
+        return _cagri_adi(dugum.func)
+    return ""
+
+
+def _gdscript_tara(yol: Path, goreli: str) -> Optional[DosyaTarama]:
+    """
+    GDScript dosyasını satır bazlı ayrıştırır: class_name/func/signal/const,
+    preload ilişkileri ve **fonksiyon içi çağrılar**.
+
+    GDScript'te Python `ast` muadili yok; girinti ile fonksiyon gövdesi
+    izlenir (sekme/boşluk sayısı).
+    """
+    semboller: List[Tuple[int, str, str]] = []
+    iliskiler: List[Tuple[str, str]] = []
+    cagrilar: List[Tuple[str, str, int]] = []
+    aktif_func: Optional[str] = None
+    aktif_girinti = -1
+    satir = 0
+    try:
+        with yol.open("r", encoding="utf-8", errors="replace") as f:
+            for ham in f:
+                satir += 1
+                if not ham.strip() or ham.lstrip().startswith("#"):
+                    continue
+                girinti = len(ham) - len(ham.lstrip())
+                s = ham.strip()
+                if aktif_func and girinti <= aktif_girinti and not s.startswith("func "):
+                    aktif_func = None
+                if s.startswith("class_name "):
+                    semboller.append((satir, s.split()[1][:120], "class"))
+                elif s.startswith("func ") or s.startswith("static func "):
+                    parca = s.split("func ", 1)[1]
+                    ad = parca.split("(", 1)[0].strip()
+                    if ad:
+                        semboller.append((satir, ad[:120], "func"))
+                        aktif_func = ad
+                        aktif_girinti = girinti
+                elif s.startswith("signal "):
+                    semboller.append((satir, s.split()[1][:120], "signal"))
+                elif s.startswith("const "):
+                    ad = s[6:].split("=", 1)[0].strip().split(":")[0].strip()
+                    if ad:
+                        semboller.append((satir, ad[:120], "const"))
+                # preload / load ilişkisi
+                for isaret in ("preload(", "load("):
+                    if isaret in s:
+                        try:
+                            hedef = s.split(isaret, 1)[1].split(")", 1)[0]
+                            hedef = hedef.strip().strip('"').strip("'")
+                            if hedef:
+                                iliskiler.append((hedef[:200], "import"))
+                        except IndexError:
+                            pass
+                # çağrı: ad( ... (tanım satırı hariç)
+                if aktif_func and "(" in s and not s.startswith("func "):
+                    for parca in s.replace("(", " ").split():
+                        aday = parca.strip(",.:;)").strip()
+                        if (aday and (aday[0].isalpha() or aday[0] == "_")
+                                and len(aday) > 2
+                                and aday not in ("if", "for", "while", "return",
+                                                 "var", "and", "or", "not",
+                                                 "elif", "else", "match", "func")
+                                and len(cagrilar) < 5000):
+                            cagrilar.append((aktif_func, aday[:120], satir))
+    except OSError:
+        return None
+    del iliskiler[ILISKI_MAKS:]
+    return DosyaTarama(goreli, satir, "gdscript", semboller, iliskiler, cagrilar)
 
 
 def _tara(yol: Path, goreli: str) -> Optional[DosyaTarama]:
@@ -209,6 +372,11 @@ def _tara(yol: Path, goreli: str) -> Optional[DosyaTarama]:
     d = dil_bul(yol)
     if not d:
         return None
+    # ⚠ AST / yapısal ayrıştırıcı varsa onu kullan (regex'ten isabetli)
+    if d == "python":
+        return _python_ast(yol, goreli)
+    if d == "gdscript":
+        return _gdscript_tara(yol, goreli)
     sembol_kaliplari = SEMBOL_KALIPLARI.get(d, [])
     import_kaliplari = IMPORT_KALIPLARI.get(d, [])
     semboller: List[Tuple[int, str, str]] = []
@@ -275,6 +443,11 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
     db = _db_yolu(kok)
     bag = _baglan(db)
     _sema(bag)
+    # ⚠ Şema sürümü değiştiyse (yeni tablo/alan) tam tarama yap
+    onceki_semver = bag.execute(
+        "SELECT deger FROM ustveri WHERE anahtar='semver'").fetchone()
+    if onceki_semver and onceki_semver["deger"] != str(SEMVER):
+        zorla = True
     var_olan = {r["path"]: (r["mtime"], r["size"])
                 for r in bag.execute("SELECT path, mtime, size FROM dosya")}
     gorulen: set[str] = set()
@@ -306,6 +479,7 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
 
         bag.execute("DELETE FROM sembol WHERE path=?", (goreli,))
         bag.execute("DELETE FROM iliski WHERE kaynak=?", (goreli,))
+        bag.execute("DELETE FROM cagri WHERE dosya=?", (goreli,))
         try:
             bag.execute("DELETE FROM sembol_fts WHERE path=?", (goreli,))
         except sqlite3.OperationalError:
@@ -329,6 +503,11 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
             bag.executemany(
                 "INSERT INTO iliski(kaynak, hedef, tur) VALUES(?,?,?)",
                 [(goreli, hedef, tur) for hedef, tur in tarama.iliskiler])
+        if tarama.cagrilar:
+            bag.executemany(
+                "INSERT INTO cagri(kaynak_sembol, hedef_ad, dosya, satir) "
+                "VALUES(?,?,?,?)",
+                [(k, h, goreli, sat) for k, h, sat in tarama.cagrilar])
         sembol_sayi += len(tarama.semboller)
         iliski_sayi += len(tarama.iliskiler)
         if onceki:
@@ -341,6 +520,7 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
         bag.execute("DELETE FROM dosya WHERE path=?", (eski,))
         bag.execute("DELETE FROM sembol WHERE path=?", (eski,))
         bag.execute("DELETE FROM iliski WHERE kaynak=?", (eski,))
+        bag.execute("DELETE FROM cagri WHERE dosya=?", (eski,))
         try:
             bag.execute("DELETE FROM sembol_fts WHERE path=?", (eski,))
         except sqlite3.OperationalError:
@@ -353,6 +533,7 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
                 (time.strftime("%Y-%m-%dT%H:%M:%S"),))
     bag.commit()
 
+    cagri_sayi = bag.execute("SELECT COUNT(*) c FROM cagri").fetchone()["c"]
     toplam = bag.execute(
         "SELECT COUNT(*) c, COALESCE(SUM(satir),0) s FROM dosya").fetchone()
     fts = bag.execute(
@@ -367,6 +548,7 @@ def dizinle(kok: Path, zorla: bool = False) -> Dict[str, Any]:
         "toplam_satir": toplam["s"],
         "sembol": sembol_sayi,
         "iliski": iliski_sayi,
+        "cagri": cagri_sayi,
         "yeni": yeni,
         "guncel": guncellenen,
         "silinen": silinen,
@@ -483,3 +665,33 @@ def proje_haritasi(kok: Path, sinir: int = 20) -> Dict[str, Any]:
         "ok": True, "dosya": toplam["c"], "toplam_satir": toplam["s"],
         "diller": diller, "en_buyuk": buyuk, "sembol_yogun": with_symbols,
     }
+
+def cagri_grafigi(kok: Path, ad: str, sinir: int = 40) -> Dict[str, Any]:
+    """
+    Çağrı grafiği: `ad` fonksiyonunu **kim çağırıyor**, o **kimi çağırıyor**.
+
+    Args:
+        kok: Proje kökü (indeksli olmalı)
+        ad: Fonksiyon/metot adı (kısmi eşleşme)
+        sinir: En fazla kayıt
+
+    Returns:
+        {"ok", "ad", "cagiranlar": [...], "cagardiklari": [...]}
+    """
+    kok = Path(kok)
+    db = _db_yolu(kok)
+    if not db.exists():
+        return {"ok": False, "error": "indeks yok — önce code.index"}
+    bag = _baglan(db)
+    try:
+        cagiran = [dict(r) for r in bag.execute(
+            "SELECT kaynak_sembol, dosya, satir FROM cagri "
+            "WHERE hedef_ad LIKE ? LIMIT ?", (f"%{ad}%", sinir))]
+        cagardigi = [dict(r) for r in bag.execute(
+            "SELECT hedef_ad, dosya, satir FROM cagri "
+            "WHERE kaynak_sembol LIKE ? LIMIT ?", (f"%{ad}%", sinir))]
+    finally:
+        bag.close()
+    return {"ok": True, "ad": ad, "cagiranlar": cagiran,
+            "cagardiklari": cagardigi,
+            "sayi": len(cagiran) + len(cagardigi)}
