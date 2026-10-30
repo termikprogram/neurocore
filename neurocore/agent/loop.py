@@ -215,6 +215,18 @@ Kullanıcı hangi dilde yazdıysa **o dilde** yanıtla. Türkçe soruya Türkçe
 onları **olduğu gibi** bırak. Dil belirsizse (ör. tek sözcük) son kullanılan
 dili sürdür.
 
+## Büyük dosya bölme / refactor (ZORUNLU SIRA)
+Bir dosyayı bölmeden önce ve sonra şu kurallara uy:
+1. **Oku**: `code.outline(path)` ile yapıyı çıkar, sonra hedef bloğu **tek
+   çağrıda** `code.read_file(start_line=..., max_lines=...)` ile al
+   (varsayılan 800 satır).
+2. **Kopyala → yapıştır → doğrula → SONRA sil.** Asla "önce sil, sonra yaz".
+3. **Parite**: taşıdığın her fonksiyonun yeni dosyada birebir karşılığı
+   olmalı; `code.find_symbol` ile iki tarafta da ara.
+4. **Ölç**: `git diff --numstat` — silinen satır > 150 ve eklenen < silinen×0.6
+   ise kod KAYIP demektir; geri al (`git checkout -- <dosya>`) ve yeniden dene.
+5. **Test**: davranış testi (parite testi) yazıp çalıştır; geçmeden bitirme.
+
 ## Büyük dosyalar (milyonlarca satır)
 Bir dosya **2 MB'tan büyükse** asla tamamını okumaya çalışma:
 1. `code.outline(path)` → yapı haritası (sınıf/fonksiyon/başlık satırları)
@@ -1874,6 +1886,8 @@ class AgentLoop:
                     # ⚠ (a) MADDE KAPISI: çok sorulu görevde her madde için
                     # araç kanıtı iste (bounded: en fazla 2 kez).
                     if self._madde_kapisi(task, run, messages):
+                        continue
+                    if self._refactor_denetle(run, messages):
                         continue
                     if self._kanit_hatirlat(task, text, run, messages):
                         continue
@@ -3617,6 +3631,51 @@ class AgentLoop:
             else:
                 eksik.append(metin)
         return kapsanan, eksik
+
+    def _refactor_denetle(self, run: AgentRun,
+                          messages: List[LLMMessage]) -> bool:
+        """
+        ⚠ REFACTOR PARİTE KAPISI
+
+        ÖLÇÜLEN OLAY (TitoWarWeb): ajan `player_controller.gd`'yi böldüğünü
+        söyledi; `git diff --numstat` **706 silinen / 35 eklenen** gösterdi ve
+        yeni dosya hiç büyümedi → ~671 satır kod kayboldu, testler yine de
+        geçti (sahne çalışmıyordu). Bu kapı kaybı yakalar.
+
+        Returns:
+            True → modele "parite kontrolü yap" mesajı eklendi
+        """
+        if not getattr(self, "_workspace", None):
+            return False
+        if self._counter.get("refactor_denetim"):
+            return False
+        try:
+            from neurocore.agent.refactor import git_numstat, numstat_denetle
+
+            ham = git_numstat(self._workspace)
+            if not ham.strip():
+                return False
+            rapor = numstat_denetle(ham)
+        except Exception as exc:
+            logger.debug(f"Refactor denetimi atlandı: {exc}")
+            return False
+        if not (rapor.get("kayip_suphesi") or rapor.get("silen_dosyalar")):
+            return False
+        self._counter["refactor_denetim"] = 1
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="verify", ok=False,
+            text=(f"refactor: {rapor['silinen']} silinen / "
+                  f"{rapor['eklenen']} eklenen (oran {rapor['oran']})")))
+        messages.append(LLMMessage(
+            "user",
+            "REFACTOR PARİTE UYARISI:\n" + rapor["mesaj"] +
+            "\n- Taşıdığın her fonksiyonun yeni dosyada **birebir** karşılığı "
+              "olmalı (`code.outline` ile iki dosyayı listele, `code.find_symbol` "
+              "ile adları doğrula).\n"
+              "- Sıra: KOPYALA → YAPIŞTIR → DOĞRULA → SONRA SİL. Eksik kaldıysa "
+              "silinen bloğu geri getir (git checkout -- <dosya>).\n"
+              "- Parite testini çalıştır; geçmeden bitirme."))
+        return True
 
     def _kanit_hatirlat(self, task: str, cevap: str, run: AgentRun,
                         messages: List[LLMMessage]) -> bool:

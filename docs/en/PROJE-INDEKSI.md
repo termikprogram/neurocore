@@ -80,3 +80,17 @@ Kaynak: `neurocore/agent/codeindex.py` · Testler: `tests/test_codeindex.py` (16
 Ölçüm: 11 çağıran · 12 çağrılan · 5 ms · SVG 6,6 KB · tek dosya (dış kaynak yok).
 
 ![Etki haritası](../images/etki-haritasi.png)
+
+
+## Refactor parite kapısı
+
+Büyük dosya bölmede "taşıdım" iddiası **ölçülür**: `git diff --numstat`
+silinen > 150 ve eklenen < silinen×0.60 ise çalışma bitmiş sayılmaz.
+
+```python
+from neurocore.agent.refactor import git_numstat, numstat_denetle
+numstat_denetle(git_numstat(proje))["kayip_suphesi"]
+```
+
+Gerçek olay: 706 silinen / 35 eklenen → kayıp yakalandı, dosya geri alındı.
+Testler: `tests/test_refactor.py` (12).
