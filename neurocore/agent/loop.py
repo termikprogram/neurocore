@@ -225,6 +225,17 @@ Bir dosya **2 MB'tan büyükse** asla tamamını okumaya çalışma:
 `total_lines` alanına bakarak dosyanın ne kadar büyük olduğunu anla; gerekirse
 önce `note` alanındaki "devamı için start_line=..." ipucunu kullan.
 
+## Büyük PROJE (binlerce dosya, milyonlarca satır)
+Tek dosya penceresi yetmez; **ilişkili kodu** bulmak için proje indeksi:
+1. `code.index` → semboller + import ilişkileri (artımlı; 2.000 dosya /
+   6 M satır ≈ 40 sn ilk kurulum, sonra 0,15 sn)
+2. `code.map` → dil dağılımı, en büyük dosyalar, sembol yoğunluğu
+3. `code.find_symbol("ad")` → tanım satırları (ms düzeyi)
+4. `code.find_references("ad")` → kullanan dosyalar (import grafiği)
+5. `code.related("yol")` → dosyanın import ettikleri + onu kullananlar
+6. Ancak bundan sonra `code.read_file(start_line=...)` ile ilgili pencereyi oku.
+İndeks yoksa sembol aramaları boş döner; önce `code.index` çağır.
+
 ## Araştırma (görsel/3B/API işlerinde zorunlu)
 Görsel, 3B, ışık/gölge/materyal, ses veya motor-API işlerinde **en az bir kez**
 ara: `web.search` ya da bilgi kasası (`knowledge.search`). Bulduğun 2-3 maddeyi
