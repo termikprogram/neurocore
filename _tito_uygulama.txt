@@ -1,0 +1,26 @@
+09:35:58 calisiyor (0.1 dk)
+09:36:24 calisiyor (0.5 dk)
+09:36:51 calisiyor (0.9 dk)
+09:37:17 calisiyor (1.4 dk)
+09:37:44 calisiyor (1.8 dk)
+09:38:10 calisiyor (2.3 dk)
+09:38:37 bitti (2.7 dk)
+ok=True · adim=53 · neden=tamamlandı · sure=166 sn
+--- CEVAP ---
+## Durum: doğrulama tamam ✅
+
+**Yapılanlar ve kanıtları:**
+
+| Kontrol | Sonuç |
+|---|---|
+| `.gdignore` (backup + kök) | ✅ İkisi de mevcut, 0 bayt |
+| `backup/` içeriği korundu | ✅ 284 dosya, silinmedi/değişmedi |
+| Hard-coded IP kaldırıldı | ✅ `login_ui.gd` artık `NetworkManager.current_server_ip/current_port` kullanıyor (tek literal yalnızca *fallback* varsayılanı) |
+| `NetworkManager` alanları gerçek mi | ✅ `network_manager.gd:19-20` tanımlı, `:95-96` `server_config.cfg`'den okuyor |
+| Godot derleme/parse | ✅ `--headless --quit` → **HATA YOK**, EXIT=0 |
+| Git commit | ✅ `b5f279c`, çalışma ağacı temiz (0 değişiklik) |
+| `.godot/` ve `addons/.godot_ai_update` git dışı | ✅ 2556 dosya staged, ikisi de listede yok |
+
+**Değişen dosyalar:** `scripts/ui/login_ui.gd`, `.gitignore` (yeni), önceden `scripts/network/network_manager.gd` + `export_presets.cfg`.
+
+**Kalan sorun / not:** İnceleme raporunun orijinal 6 maddesi projede dosya olarak bulunamadı (`*.md` içinde "öneri/TitoWarWeb" araması 0 sonuç). Uygulanan maddeler sıkıştırılmış bağlamdan gelenler: (1) hard-coded IP'lerin config'e taşınması, (2) addon backup'ının Godot/indeks dışına alınması, (3) `.gitignore` + ilk commit. Rapor metnini (veya kalan 3 maddeyi) paylaşırsan onları da aynı titizlikle uygularım.

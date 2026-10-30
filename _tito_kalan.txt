@@ -1,0 +1,50 @@
+09:39:17 calisiyor (0.0 dk)
+09:39:43 calisiyor (0.5 dk)
+09:40:10 calisiyor (0.9 dk)
+09:40:37 calisiyor (1.4 dk)
+09:41:03 calisiyor (1.8 dk)
+09:41:30 calisiyor (2.2 dk)
+09:41:56 calisiyor (2.7 dk)
+09:42:23 calisiyor (3.1 dk)
+09:42:49 calisiyor (3.6 dk)
+09:43:16 calisiyor (4.0 dk)
+09:43:42 calisiyor (4.5 dk)
+09:44:09 calisiyor (4.9 dk)
+09:44:36 calisiyor (5.3 dk)
+09:45:02 calisiyor (5.8 dk)
+09:45:29 calisiyor (6.2 dk)
+09:45:55 calisiyor (6.7 dk)
+09:46:22 calisiyor (7.1 dk)
+09:46:48 calisiyor (7.6 dk)
+09:47:15 calisiyor (8.0 dk)
+09:47:41 calisiyor (8.4 dk)
+09:48:08 calisiyor (8.9 dk)
+09:48:34 calisiyor (9.3 dk)
+09:49:01 calisiyor (9.8 dk)
+09:49:28 calisiyor (10.2 dk)
+09:49:54 calisiyor (10.7 dk)
+09:50:21 bitti (11.1 dk)
+ok=True · adim=219 · neden=tamamlandı · sure=663 sn
+--- CEVAP ---
+Durumu netleştireyim: araç çağrılarım bu turda yanıt vermedi, o yüzden dosya bölme işlemini körlemesine (okumadan) yapmayacağım — 5260 satırlık bir dosyada cerrahi olmayan düzenleme projeyi kırar.
+
+Elimdeki doğrulanmış bilgiyle durum:
+
+**Tamamlanan (önceki turlar)**
+- `server_config.cfg`, `.gdignore`, export `exclude_filter` (1-3. maddeler)
+- `scripts/player/player_movement.gd` mevcut ve `process_movement(delta)` giriş noktası çalışıyor; `read_movement_input / update_camera_basis / compute_move_dir / decay_timers / apply_gravity / check_void_recovery / handle_jump / handle_block / handle_attack / apply_horizontal_movement / update_footsteps / update_combat_timer` alt fonksiyonları orada.
+- `player_controller.gd` içinde `movement_mgr.lmb_*`, `movement_mgr.double_tap_timers`, `movement_mgr._surface_check_timer`, `movement_mgr._was_jump_pressed_prev` erişimleri zaten taşınmış durumda (satır 1724-1726 notu, 3499-3501, 3559-3561, 3578-3579).
+
+**Kalan iş (A maddesi) — neden tek adımda yapılamıyor**
+`_physics_process` (satır 3373-4140) hâlâ ~770 satır ve içinde iki ayrı sorumluluk iç içe geçmiş:
+1. **Girdi + hareket** (3439-4098): `gp_sprint/gp_block`, ölüm/UI erken çıkışları, timer decay, yerçekimi + düşme hasarı, void kurtarma, zıplama, blok, saldırı (LMB/heavy charge), yön vektörü + kamera basis, sprint/stamina, crouch, sliding platform fiziği, glide, `move_and_slide()`.
+2. **Ağ + sunum** (4098-4140): `animate_character`, nameplate, interaction focus, 25 Hz UDP transform yayını, ekipman senkronu.
+
+Bunları `player_movement.gd`'ye taşımak için `_physics_process` gövdesinin **birebir** metnine ihtiyacım var (girinti seviyeleri `code.edit_file`'ın `old_text` eşleşmesi için kritik). Araç çağrısı olmadan bu metni üretmek = tahmin = dosyayı bozma riski. Bu yüzden bu adımı yapmadım.
+
+**Öneri (bir sonraki turda 3 adımda biter)**
+1. `code.read_file("scripts/player/player_controller.gd", start_line=3439, max_lines=340)` ve `start_line=3779, max_lines=320` → gövde metnini al.
+2. `player_movement.gd`'ye `func process_physics(delta)` + `func process_network_sync(delta)` ekle; `player_controller.gd`'deki `_physics_process` gövdesini bu iki çağrıya indir (satır 3439-4140 → ~10 satır).
+3. `godot --headless --path . --quit` ile derleme doğrula; hata varsa `code.diagnose_error`.
+
+`git add`/`git commit` yapılmadı. Onay verirsen bir sonraki turda 1. adımdan devam edip bölmeyi bitiririm.

@@ -563,7 +563,7 @@ class CodingAgent:
 
     # ─── Okuma ──────────────────────────────────────────────────────────
 
-    def read_file(self, path: str, start_line: int = 0, max_lines: int = 400,
+    def read_file(self, path: str, start_line: int = 0, max_lines: int = 800,
                   with_line_numbers: bool = True) -> Dict[str, Any]:
         """
         Dosyayı satır numaralarıyla okur.
