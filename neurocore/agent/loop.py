@@ -1887,10 +1887,17 @@ class AgentLoop:
                     # araç kanıtı iste (bounded: en fazla 2 kez).
                     if self._madde_kapisi(task, run, messages):
                         continue
-                    if self._refactor_denetle(run, messages):
-                        continue
-                    if self._kanit_hatirlat(task, text, run, messages):
-                        continue
+                    # ⚠ Kapılar hata yalıtımı içinde: bir kapı çökerse
+                    # çalışma ölmesin (ölçüldü: 'NoneType' has no 'get').
+                    try:
+                        if self._arac_zorla(task, run, messages):
+                            continue
+                        if self._refactor_denetle(run, messages):
+                            continue
+                        if self._kanit_hatirlat(task, text, run, messages):
+                            continue
+                    except Exception as exc:
+                        logger.warning(f"Kapı hatası yoksayıldı: {exc}")
                     # ⚠ BİLİŞSEL KAPI: yanıt araç kanıtıyla destekleniyor mu?
                     # Desteklenmiyorsa **bir kez** düzeltme istenir (bounded).
                     text = self._cevabi_dogrula(task, text, run)
@@ -3486,6 +3493,42 @@ class AgentLoop:
     def _madde_sayisi(self, task: str) -> int:
         """Görevdeki numaralı/madde işaretli satır sayısı."""
         return len(self.MADDE_KALIBI.findall(task or ""))
+
+    def _arac_zorla(self, task: str, run: AgentRun,
+                    messages: List[LLMMessage]) -> bool:
+        """
+        ⚠ ARAÇ ZORUNLU KAPISI
+
+        ÖLÇÜLDÜ (TitoWarWeb): görev açıkça `code.outline`, `code.read_file`,
+        `code.find_symbol` diyordu; model **hiçbir araç çağırmadan** yanıt
+        yazdı ("araç çıktısı sağlanmadı"). Bu kapı: görevde `code.*` adı
+        geçiyor ve henüz araç çağrılmamışsa yanıtı reddeder, araç çağırmayı
+        zorunlu kılar (en fazla 2 kez).
+
+        Returns:
+            True → modele "önce araç çağır" mesajı eklendi
+        """
+        istenen = sorted(set(re.findall(r"code\.[A-Za-z_]+", task or "")))
+        if not istenen:
+            return False
+        arac_var = any(s.kind in ("tool", "shell") and s.ok
+                       for s in run.steps)
+        if arac_var:
+            return False
+        if self._counter.get("arac_zorla", 0) >= 2:
+            return False
+        self._counter["arac_zorla"] = self._counter.get("arac_zorla", 0) + 1
+        self._add_step(run, AgentStep(
+            index=len(run.steps), kind="verify", ok=False,
+            text=f"araç zorunlu: istenen {len(istenen)} araç, 0 çağrı"))
+        messages.append(LLMMessage(
+            "user",
+            "DUR. Bu görev açıkça şu araçları istiyor: "
+            + ", ".join(f"`{a}`" for a in istenen[:8])
+            + ". **Henüz hiçbir araç çağırmadın.** Yanıt yazma; önce bu "
+              "araçları çağır ve sonuçlarını al. Araç çağırmadan verilen "
+              "yanıt kabul edilmez."))
+        return True
 
     def _madde_kapisi(self, task: str, run: AgentRun,
                       messages: List[LLMMessage]) -> bool:
