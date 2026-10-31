@@ -26,9 +26,11 @@ echo.
 REM --- Parse arguments -------------------------------------------------------
 set "USE_VENV=1"
 set "CHECK_ONLY=0"
+set "SKIP_TORCH=0"
 for %%A in (%*) do (
     if /i "%%~A"=="--no-venv" set "USE_VENV=0"
     if /i "%%~A"=="--check" set "CHECK_ONLY=1"
+    if /i "%%~A"=="--no-torch" set "SKIP_TORCH=1"
     if /i "%%~A"=="--help" goto :help
     if /i "%%~A"=="-h" goto :help
 )
@@ -77,7 +79,16 @@ echo   [3/4] Installing packages ^(this can take a few minutes^)...
 echo.
 "%RUNPY%" %RUNARGS% -m pip install --upgrade pip --disable-pip-version-check -q
 if exist "requirements.txt" (
-    "%RUNPY%" %RUNARGS% -m pip install -r requirements.txt --disable-pip-version-check
+    if "%SKIP_TORCH%"=="1" (
+        REM torch/torchvision/torchaudio (~2.5 GB) atlanır - hızlı başlangıç
+        findstr /v /i /b "torch" "requirements.txt" > "%TEMP%\nc_req_notorch.txt"
+        echo   [INFO] torch atlandi ^(--no-torch^). Sonra kurmak icin:
+        echo          "%RUNPY%" %RUNARGS% -m pip install torch torchvision torchaudio
+        echo.
+        "%RUNPY%" %RUNARGS% -m pip install -r "%TEMP%\nc_req_notorch.txt" --disable-pip-version-check
+    ) else (
+        "%RUNPY%" %RUNARGS% -m pip install -r requirements.txt --disable-pip-version-check
+    )
 ) else (
     echo   [NOTE] requirements.txt not found; installing core packages.
     "%RUNPY%" %RUNARGS% -m pip install fastapi uvicorn websockets psutil pywinauto comtypes Pillow pyyaml --disable-pip-version-check

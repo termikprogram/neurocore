@@ -31,6 +31,10 @@ Sürümleme: [SemVer](https://semver.org/lang/tr/)
   `where python` + `py -3` ile devam eder.
 - **Python yoksa net uyarı** — `winget install --id Python.Python.3.12 -e`,
   python.org bağlantısı ve `NC_PYTHON` örneği; pencere `pause` ile açık kalır.
+- **`Kurulum.bat --no-torch`** — `torch/torchvision/torchaudio` (~2,5 GB)
+  atlanır; hızlı başlangıç. Sonradan kurmak için komutu yazar.
+  Ölçüm: filtrelenmiş kurulumda torch **yüklenmedi**, `fastapi` yüklendi,
+  "Setup complete" · çıkış 0.
 
 ### Ölçüm
 
