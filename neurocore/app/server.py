@@ -677,6 +677,8 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
             "approvals": state.approvals.status(),
             "events": state.events.status(),
             "modules": _module_status(),
+            # ⚠ Platform yetenekleri: OS/mimari, kabuk, GPU arka ucu, UI otomasyonu
+            "platform": _platform_bilgisi(),
             "last_run": state.last_run,
             # ⚠ Havuz özeti: kaç makine bağlı (SSH'sız, önbellekten)
             "pool": ({"dugum_sayisi": getattr(state.peer_pool, "_son_dugum_sayisi", 0),
@@ -687,6 +689,15 @@ def create_app(state: AppState, static_dir: Optional[Path] = None) -> Any:
                       "node_id": getattr(state.peer_pool, "_kimlik", "")[:8]}
                      if getattr(state, "peer_pool", None) is not None else {}),
         })
+
+    def _platform_bilgisi() -> Dict[str, Any]:
+        """Platform özeti (RTX Spark / AI Halo dahil her ortam için)."""
+        try:
+            from neurocore.platform import ozellikler
+
+            return ozellikler()
+        except Exception as exc:  # platform katmanı yoksa sessiz
+            return {"error": str(exc)}
 
     def _module_status() -> Dict[str, Any]:
         """Yetenek modüllerinin durumu (Godot/Blender/görsel)."""

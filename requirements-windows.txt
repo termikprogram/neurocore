@@ -1,0 +1,4 @@
+# Windows'a özel (UI Automation). Arm64'te comtypes tekerleği olmayabilir —
+# bu durumda arabirim metni okuma devre dışı kalır, uygulama çalışmaya devam eder.
+pywinauto>=0.6.8
+comtypes>=1.2

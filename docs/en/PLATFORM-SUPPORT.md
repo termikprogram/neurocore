@@ -1,6 +1,7 @@
 # Platform Support — NeuroCore on RTX Spark & AMD AI Halo
 
-**Status:** feasibility analysis (measured 2026-10-31) · target: v0.3
+**Status:** feasibility analysis (measured 2026-10-31)
+**P1 — DONE (v0.3.0):** `neurocore/platform/` capability layer · 17 tests
 **Türkçe özet en altta.**
 
 ---
@@ -91,6 +92,34 @@ P4  GPU backends + tests (2–3 d)
 shared capability layer ≈ **2–3 days** (overlaps both).
 
 ---
+
+## 4b · P1 delivered (v0.3.0)
+
+```
+neurocore/platform/tespit.py
+    sistem()        → os (windows/linux/macos), arch (x86_64/arm64), python, is_arm
+    kabuk(cmd)      → ["powershell", …] | ["bash", "-lc", …]
+    gpu_arka_ucu()  → nvml | amdsmi | rocm-smi | sysfs | torch | cpu   (first that works)
+    gpu_bilgi()     → one dict: name, vram_*, utilization, temperature, power, backend
+    ui_otomasyon()  → pywinauto+comtypes available (False on Linux / Windows-Arm)
+    ozellikler()    → flags + human-readable notes
+```
+
+Wired in:
+* `hardware/monitor.py` → uses `platform.gpu_bilgi()`, NVML fallback kept
+* `app/server.py` → `GET /api/state` now returns `platform` (os, arch, shell,
+  gpu_backend, ui_automation, torch/cuda/rocm/directml, notes)
+
+Requirements split: `requirements-base.txt` (portable) ·
+`requirements-windows.txt` (pywinauto/comtypes) · `requirements-nvidia.txt` ·
+`requirements-rocm.txt`. `requirements.txt` kept for compatibility.
+
+Measured on the dev box (Windows 11, x86-64, GTX 1080 Ti):
+```
+platform: os=windows arch=x86_64 shell=powershell gpu_backend=nvml ui=True
+gpu     : NVIDIA GeForce GTX 1080 Ti (nvml) · util available
+tests   : tests/test_platform.py 17 OK · full suite 95 OK
+```
 
 ## 5 · What works unchanged
 

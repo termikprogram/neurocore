@@ -24,11 +24,25 @@ logger = NeuroCoreLogger.get_logger("hardware.monitor")
 # ─── GPU Bilgisi Yardımcıları ──────────────────────────────────────────────
 
 def _get_gpu_info() -> Optional[Dict[str, Any]]:
-    """pynvml ile GPU bilgisini al. GPU yoksa None döner."""
+    """
+    Tek biçimli GPU bilgisi.
+
+    Sıra: `neurocore.platform` (NVML → amdsmi → rocm-smi → sysfs → torch).
+    Böylece AMD (ROCm) ve Linux da çalışır; eski NVML kodu yedek olarak kalır.
+    """
+    try:
+        from neurocore.platform import gpu_bilgi
+
+        bilgi = gpu_bilgi()
+        if bilgi:
+            return bilgi
+    except Exception as exc:  # platform katmanı yoksa/bozuksa sessizce devam
+        logger.debug(f"platform.gpu_bilgi başarısız: {exc}")
+
+    # ── Yedek: doğrudan NVML (eski davranış) ──────────────────────────────
     try:
         import warnings
-        # pynvml paketi kullanımdan kaldırıldı uyarısı NVIDIA sürücüsü
-        # sorgulamayı etkilemez; konsol gürültüsünü bastırıyoruz.
+
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", FutureWarning)
             import pynvml
@@ -38,29 +52,27 @@ def _get_gpu_info() -> Optional[Dict[str, Any]]:
         util = pynvml.nvmlDeviceGetUtilizationRates(handle)
         name = pynvml.nvmlDeviceGetName(handle)
         if isinstance(name, bytes):
-            name = name.decode("utf-8")
-        
+            name = name.decode("utf-8", "replace")
         try:
             temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
         except Exception:
             temp = -1
-        
         try:
-            power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0  # mW -> W
+            power = pynvml.nvmlDeviceGetPowerUsage(handle) / 1000.0
         except Exception:
             power = -1.0
-        
         return {
             "name": name,
             "vram_total_mb": info.total / (1024 ** 2),
             "vram_used_mb": info.used / (1024 ** 2),
             "vram_free_mb": info.free / (1024 ** 2),
-            "vram_percent": (info.used / info.total) * 100,
+            "vram_percent": (info.used / info.total) * 100 if info.total else 0.0,
             "gpu_utilization": util.gpu,
             "memory_utilization": util.memory,
             "temperature_c": temp,
             "power_w": power,
             "available": True,
+            "backend": "nvml-direct",
         }
     except Exception:
         return None

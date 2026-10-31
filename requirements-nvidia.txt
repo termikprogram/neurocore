@@ -1,0 +1,8 @@
+# NVIDIA: GPU telemetrisi + CUDA PyTorch
+pynvml>=11.5.0
+GPUtil>=1.4.0
+torch>=2.0.0
+torchvision>=0.15.0
+torchaudio>=2.0.0
+# Windows/Linux x86-64 CUDA kurulumu:
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
