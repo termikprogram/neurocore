@@ -1,5 +1,8 @@
 # NeuroCore
 
+[![tests](https://github.com/termikprogram/neurocore/actions/workflows/tests.yml/badge.svg)](https://github.com/termikprogram/neurocore/actions/workflows/tests.yml)
+[![release](https://img.shields.io/github/v/release/termikprogram/neurocore)](https://github.com/termikprogram/neurocore/releases)
+
 **🇬🇧 English (this page)** · 🇹🇷 Türkçe: [README.tr.md](README.tr.md)
 
 **A local-first AI agent for your own computer.** It plans, calls tools

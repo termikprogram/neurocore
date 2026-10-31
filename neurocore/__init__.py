@@ -30,7 +30,7 @@ Hızlı başlangıç::
         print(engine.health_report().render())
 """
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 __author__ = "NeuroCore Team"
 __description__ = "Self-growing, hardware-aware, multimodal AI system"
 
