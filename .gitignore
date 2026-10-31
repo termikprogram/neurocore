@@ -71,7 +71,7 @@ knowledge_base/
 *.glb
 *.gltf
 _index/
-_*.py
+/_*.py
 
 # ⚠ Üretim ara delikleri: GIF'ler zaten depoda, kareler değil
 docs/images/_frames_*/

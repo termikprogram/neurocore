@@ -6,6 +6,31 @@ Sürümleme: [SemVer](https://semver.org/lang/tr/)
 
 ---
 
+## [0.2.4] — 2026-10-31
+
+### Düzeltildi
+
+**ZIP indirmesinde uygulama başlamıyordu: paket dosyaları repoda yoktu.**
+
+- `.gitignore` içindeki `_*.py` deseni **`__init__.py` ve `__main__.py`** dosyalarını
+  da yutuyordu → 18 paket dosyası hiç commit edilmemişti.
+- Sonuç: temiz klonda/ZIP'te `python -m neurocore.app` →
+  `No module named neurocore.app.__main__; 'neurocore.app' is a package and
+  cannot be directly executed` ve `Run.bat` sessizce çıkıyordu.
+- Düzeltme: desen `/_*.py` (yalnız kök dizin) · 18 dosya eklendi:
+  `neurocore/__init__.py`, `neurocore/__main__.py`, 15 alt paket `__init__.py`,
+  `tests/__init__.py`.
+
+### Ölçüm
+
+```
+Önce : git ls-files → __init__.py = 0, __main__.py = 0
+Sonra: __init__.py = 16, __main__.py = 2
+Uygulama (temiz kopya, .venv): python -m neurocore.app → HTTP 200
+```
+
+---
+
 ## [0.2.3] — 2026-10-31
 
 ### Eklendi
