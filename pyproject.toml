@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "neurocore"
-version = "0.3.0"
+version = "0.3.1"
 description = "Donanım-farkında, çok-modlu, kendi kendine öğrenen ve makineler arası iş paylaşan yerel yapay zekâ ajanı"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -121,6 +121,33 @@ gpu     : NVIDIA GeForce GTX 1080 Ti (nvml) · util available
 tests   : tests/test_platform.py 17 OK · full suite 95 OK
 ```
 
+## 4c · P2/P3 delivered (v0.3.1)
+
+### Windows installer (`Kurulum.bat` / `installation.bat`)
+Now installs by platform instead of one monolith:
+
+```
+[INFO] portable core: requirements-base.txt      ← always
+        requirements-windows.txt                 ← Windows only (pywinauto/comtypes)
+        torch torchvision torchaudio             ← skipped with --no-torch / --base-only
+```
+
+New flag `--base-only` (portable core only). Verified end to end in a clean copy:
+`installation.bat --no-torch` → base installed, torch skipped, **"Setup complete", exit 0**.
+
+### Linux installer (`kur_istemci.sh` / `installation.sh`)
+* installs `requirements-base.txt` + `requirements-rocm.txt` on ROCm (amdsmi)
+* **never** installs `requirements-windows.txt` on Linux
+* `--systemd` → `~/.config/systemd/user/neurocore.service` (autostart, restart=on-failure)
+* `--desktop` → `~/.local/share/applications/neurocore.desktop`
+* prints `python -m neurocore.platform` (JSON capabilities) at the end
+* syntax checked with `bash -n` (Git Bash)
+
+### CI matrix (P4 start)
+`.github/workflows/tests.yml` — `ubuntu-latest` + `windows-latest` × Python 3.10/3.12:
+install **base only**, print platform JSON, run the whole unit suite, plus an
+import-smoke job proving the core imports without torch/pywinauto.
+
 ## 5 · What works unchanged
 
 * FastAPI server + Web UI (pure Python, browser-based) — **no change**

@@ -132,6 +132,12 @@ Nothing is hard-coded to CUDA 12.4 any more.
 ```bat
 Kurulum.bat          :: Turkish name
 installation.bat     :: English name (same installer, forwards all arguments)
+
+# Linux / macOS
+bash kur_istemci.sh            # GPU auto-detect (CUDA / ROCm / CPU)
+bash installation.sh           # same, English name
+bash installation.sh --systemd # + systemd user service
+bash installation.sh --desktop # + desktop entry
 ```
 
 Python is found automatically (`.venv` → `py` launcher → PATH → common folders → registry).

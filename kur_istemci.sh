@@ -7,6 +7,8 @@
 #     bash kur_istemci.sh --torch rocm6.2
 #     bash kur_istemci.sh --torch cpu
 #     bash kur_istemci.sh --sadece-gpu     # yalnız algıla, kurma
+#     bash kur_istemci.sh --systemd        # systemd kullanıcı servisi kur
+#     bash kur_istemci.sh --desktop        # .desktop kısayolu oluştur
 #
 #  Windows'ta `kur_istemci.ps1` kullanılır; bu betik POSIX sistemler içindir.
 # =============================================================================
@@ -15,12 +17,16 @@ set -euo pipefail
 TORCH="auto"
 SADECE_GPU=0
 VENV=".venv"
+SYSTEMD=0
+DESKTOP=0
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --torch) TORCH="$2"; shift 2 ;;
     --sadece-gpu) SADECE_GPU=1; shift ;;
     --venv) VENV="$2"; shift 2 ;;
+    --systemd) SYSTEMD=1; shift ;;
+    --desktop) DESKTOP=1; shift ;;
     -h|--help)
       grep '^#' "$0" | sed 's/^# \{0,1\}//' | head -20
       exit 0 ;;
@@ -122,14 +128,74 @@ except Exception:
     print("  [ok] AMP dtype: fp32 (GPU yok)")
 PYEOK
 
-# ─── Bağımlılıklar ──────────────────────────────────────────────────────────
+# ─── Bağımlılıklar (platforma göre) ─────────────────────────────────────────
 baslik "BAĞIMLILIKLAR"
-[[ -f requirements.txt ]] && $PIP install -r requirements.txt --quiet && ok "requirements.txt kuruldu"
+if [[ -f requirements-base.txt ]]; then
+  $PIP install -r requirements-base.txt --quiet && ok "requirements-base.txt kuruldu"
+else
+  $PIP install -r requirements.txt --quiet && ok "requirements.txt kuruldu (eski dosya)"
+fi
+if [[ "$SECIM" == rocm* && -f requirements-rocm.txt ]]; then
+  $PIP install -r requirements-rocm.txt --quiet || uyari "amdsmi kurulamadı (ROCm sürücüsü yok mu?)"
+  ok "requirements-rocm.txt (amdsmi)"
+fi
+# Windows'a özel paketler (pywinauto/comtypes) Linux'ta KURULMAZ
+[[ -f requirements-windows.txt ]] && ok "requirements-windows.txt atlandı (Windows'a özel)"
 
 # ─── Doğrulama ──────────────────────────────────────────────────────────────
+baslik "PLATFORM"
+"$VENV/bin/python" -m neurocore.platform || uyari "platform bilgisi alınamadı"
+
 baslik "DOĞRULAMA"
 "$VENV/bin/python" tools/kurulum_kontrol.py || uyari "kurulum kontrolü uyarı verdi"
 "$VENV/bin/python" tools/kabiliyet_olc.py || uyari "kabiliyet ölçümü tam geçmedi"
+
+# ─── systemd kullanıcı servisi ──────────────────────────────────────────────
+if [[ "$SYSTEMD" == "1" ]]; then
+  baslik "SYSTEMD (kullanıcı servisi)"
+  BIRIM_DIR="$HOME/.config/systemd/user"
+  mkdir -p "$BIRIM_DIR"
+  cat > "$BIRIM_DIR/neurocore.service" <<EOF
+[Unit]
+Description=NeuroCore local agent
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=$(pwd)
+ExecStart=$(pwd)/$VENV/bin/python -m neurocore.app --no-window --port 8791 --autonomy yolo
+Restart=on-failure
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONUTF8=1
+
+[Install]
+WantedBy=default.target
+EOF
+  systemctl --user daemon-reload 2>/dev/null || true
+  systemctl --user enable --now neurocore.service 2>/dev/null \
+    && ok "servis: neurocore.service (systemctl --user status neurocore)" \
+    || uyari "systemd yok/etkin değil — servis dosyası yazıldı: $BIRIM_DIR/neurocore.service"
+fi
+
+# ─── masaüstü kısayolu ──────────────────────────────────────────────────────
+if [[ "$DESKTOP" == "1" ]]; then
+  baslik "MASAÜSTÜ KISAYOLU"
+  UYG="$HOME/.local/share/applications"
+  mkdir -p "$UYG"
+  cat > "$UYG/neurocore.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=NeuroCore
+Comment=Local AI software agent
+Exec=$(pwd)/$VENV/bin/python -m neurocore.app --port 8791
+Path=$(pwd)
+Icon=utilities-terminal
+Terminal=false
+Categories=Development;Utility;
+EOF
+  ok ".desktop: $UYG/neurocore.desktop"
+fi
 
 echo
 echo "==========================================================================="

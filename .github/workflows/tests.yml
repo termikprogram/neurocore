@@ -1,0 +1,54 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unit:
+    name: ${{ matrix.os }} · py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Install portable core only
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-base.txt
+
+      - name: Show platform capabilities
+        run: python -m neurocore.platform
+
+      - name: Unit tests (no GPU, no Windows extras)
+        run: python -m unittest discover -s tests -p "test_*.py" -v
+
+  platform-import:
+    name: import smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install -r requirements-base.txt
+      - name: Core imports must work without torch / pywinauto
+        run: |
+          python -c "import neurocore; print('neurocore', neurocore.__version__)"
+          python -c "from neurocore.platform import ozellikler; print(ozellikler()['gpu_backend'])"
+          python -c "from neurocore.agent.loop import AgentLoop; print('loop ok')"
+          python -c "from neurocore.agent import bigfile, codeindex, refactor; print('agent tools ok')"

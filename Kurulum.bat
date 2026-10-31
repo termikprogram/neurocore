@@ -27,10 +27,12 @@ REM --- Parse arguments -------------------------------------------------------
 set "USE_VENV=1"
 set "CHECK_ONLY=0"
 set "SKIP_TORCH=0"
+set "BASE_ONLY=0"
 for %%A in (%*) do (
     if /i "%%~A"=="--no-venv" set "USE_VENV=0"
     if /i "%%~A"=="--check" set "CHECK_ONLY=1"
     if /i "%%~A"=="--no-torch" set "SKIP_TORCH=1"
+    if /i "%%~A"=="--base-only" set "BASE_ONLY=1"
     if /i "%%~A"=="--help" goto :help
     if /i "%%~A"=="-h" goto :help
 )
@@ -78,6 +80,23 @@ REM --- 3) Packages -----------------------------------------------------------
 echo   [3/4] Installing packages ^(this can take a few minutes^)...
 echo.
 "%RUNPY%" %RUNARGS% -m pip install --upgrade pip --disable-pip-version-check -q
+REM ── Platforma göre bağımlılık: base + windows + torch ─────────────────────
+if exist "requirements-base.txt" (
+    echo   [INFO] portable core: requirements-base.txt
+    "%RUNPY%" %RUNARGS% -m pip install -r requirements-base.txt --disable-pip-version-check
+    if "%BASE_ONLY%"=="1" goto :packages_done
+    if exist "requirements-windows.txt" (
+        "%RUNPY%" %RUNARGS% -m pip install -r requirements-windows.txt --disable-pip-version-check
+    )
+    if "%SKIP_TORCH%"=="1" (
+        echo   [INFO] torch atlandi ^(--no-torch^)
+    ) else (
+        "%RUNPY%" %RUNARGS% -m pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124 --disable-pip-version-check
+    )
+    goto :packages_done
+)
+
+
 if exist "requirements.txt" (
     if "%SKIP_TORCH%"=="1" (
         REM torch/torchvision/torchaudio (~2.5 GB) atlanır - hızlı başlangıç
@@ -94,6 +113,8 @@ if exist "requirements.txt" (
     "%RUNPY%" %RUNARGS% -m pip install fastapi uvicorn websockets psutil pywinauto comtypes Pillow pyyaml --disable-pip-version-check
 )
 echo.
+
+:packages_done
 
 echo   [4/4] Checking PyTorch ^(GPU support^)...
 "%RUNPY%" %RUNARGS% -c "import torch; print('   torch', torch.__version__, '| CUDA available:', torch.cuda.is_available())" 2>nul
