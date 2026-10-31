@@ -3436,57 +3436,80 @@ class AgentLoop:
     @staticmethod
     def _mesajlari_onar(messages: List[LLMMessage]) -> None:
         """
-        ⚠ Yetim `tool` mesajlarını atar (sağlayıcı 400'ünü önler).
+        ⚠ Sağlayıcı 400'lerini önlemek için mesaj listesini **normalize** eder.
 
-        Kural: bir `tool` mesajı, **kendisinden önceki** assistant turundaki
-        `tool_calls` kimliklerinden biriyle eşleşmelidir. Sıkıştırma/kesme
-        sonrası eşleşmeyen mesajlar sağlayıcı tarafından reddedilir.
+        Ölçülen hata (DeepSeek):
+            "Messages with role 'tool' must be a response to a preceding
+             message with 'tool_calls'"
+        İki kural uygulanır:
+          1. `tool` mesajı yalnızca **kendisinden hemen önceki** assistant
+             turunun `tool_calls` kimlikleriyle eşleşiyorsa kalır; eşleşmeyen
+             sonuçlar bilgi kaybı olmasın diye `user` metnine çevrilir.
+          2. `tool_calls` bloğu **tam** değilse (bazı yanıtlar düşmüşse)
+             çağrılar assistant mesajından çıkarılır.
         """
         bekleyen: set = set()
-        temiz: List[LLMMessage] = []
-        atilan = 0
-        for m in messages:
+        sonuc: List[LLMMessage] = []
+        cevrilen = 0
+        dusurulen = 0
+
+        i = 0
+        while i < len(messages):
+            m = messages[i]
             rol = getattr(m, "role", "")
             if rol == "assistant":
-                cagrilar = getattr(m, "tool_calls", None) or []
-                bekleyen = {str(c.get("id") or "") for c in cagrilar
-                            if isinstance(c, dict)}
-            elif rol == "tool":
-                kimlik = str(getattr(m, "tool_call_id", "") or "")
-                if kimlik and kimlik in bekleyen:
-                    bekleyen.discard(kimlik)
-                    temiz.append(m)
+                cagrilar = [c for c in (getattr(m, "tool_calls", None) or [])
+                            if isinstance(c, dict)]
+                kimlikler = [str(c.get("id") or "") for c in cagrilar]
+                if not kimlikler:
+                    sonuc.append(m)
+                    i += 1
+                    continue
+                # Bu assistant'tan sonra gelen tool mesajlarını topla
+                bulunan: dict = {}
+                j = i + 1
+                while j < len(messages):
+                    n = messages[j]
+                    if getattr(n, "role", "") != "tool":
+                        break
+                    kid = str(getattr(n, "tool_call_id", "") or "")
+                    if kid in kimlikler and kid not in bulunan:
+                        bulunan[kid] = n
+                    else:
+                        cevrilen += 1
+                        sonuc.append(LLMMessage(
+                            "user",
+                            "Araç sonucu: "
+                            + str(getattr(n, "content", ""))[:4000]))
+                    j += 1
+                if len(bulunan) == len(kimlikler):
+                    sonuc.append(m)
+                    sonuc.extend(bulunan[k] for k in kimlikler)
                 else:
-                    atilan += 1
+                    # Eksik yanıt → tool_calls'ı düşür, içeriği koru
+                    dusurulen += len(kimlikler) - len(bulunan)
+                    try:
+                        m.tool_calls = None
+                    except Exception:
+                        pass
+                    sonuc.append(m)
+                i = j
                 continue
-            temiz.append(m)
-        # ⚠ İkinci geçiş: **yanıtsız** tool_calls bırakmak da 400 üretir
-        # ("tool_calls must be followed by tool messages"). Yanıtı olmayan
-        # çağrıları assistant mesajından düşür; içerik korunur.
-        sonuc: List[LLMMessage] = []
-        for i, m in enumerate(temiz):
-            if getattr(m, "role", "") == "assistant":
-                cagrilar = getattr(m, "tool_calls", None) or []
-                if cagrilar:
-                    yanitlanan = {str(getattr(x, "tool_call_id", "") or "")
-                                  for x in temiz[i + 1:]
-                                  if getattr(x, "role", "") == "tool"}
-                    eksik = [c for c in cagrilar
-                             if str(c.get("id") or "") not in yanitlanan]
-                    if eksik:
-                        logger.debug(
-                            f"Yanıtsız tool_calls temizlendi: {len(eksik)}")
-                        try:
-                            m.tool_calls = [c for c in cagrilar
-                                            if c not in eksik] or None
-                        except Exception:
-                            pass
+            if rol == "tool":
+                # Bağlamsız tool mesajı → metne çevir (bilgi kaybolmasın)
+                cevrilen += 1
+                sonuc.append(LLMMessage(
+                    "user",
+                    "Araç sonucu: " + str(getattr(m, "content", ""))[:4000]))
+                i += 1
+                continue
             sonuc.append(m)
-        temiz = sonuc
+            i += 1
 
-        if atilan:
-            logger.debug(f"Yetim tool mesajı atıldı: {atilan}")
-        messages[:] = temiz
+        if cevrilen or dusurulen:
+            logger.debug(
+                f"Mesaj onarımı: {cevrilen} tool → user · {dusurulen} yanıtsız çağrı")
+        messages[:] = sonuc
 
     def _kanit_metni(self, run: AgentRun, sinir: int = 2500) -> str:
         """Araç çıktılarından **kanıt** metni üretir (doğrulama için)."""
