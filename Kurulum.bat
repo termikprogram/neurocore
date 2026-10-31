@@ -25,8 +25,10 @@ echo.
 
 REM --- Parse arguments -------------------------------------------------------
 set "USE_VENV=1"
+set "CHECK_ONLY=0"
 for %%A in (%*) do (
     if /i "%%~A"=="--no-venv" set "USE_VENV=0"
+    if /i "%%~A"=="--check" set "CHECK_ONLY=1"
     if /i "%%~A"=="--help" goto :help
     if /i "%%~A"=="-h" goto :help
 )
@@ -44,6 +46,9 @@ if defined PYARGS (
 )
 echo.
 
+REM --- --check: yalnız tespit -------------------------------------------------
+if "%CHECK_ONLY%"=="1" goto :check_only
+
 REM --- 2) Virtual environment ------------------------------------------------
 set "RUNPY=%PYEXE%"
 set "RUNARGS=%PYARGS%"
@@ -51,7 +56,7 @@ if "%USE_VENV%"=="1" (
     if exist ".venv\Scripts\python.exe" (
         echo   [2/4] Using existing virtual environment: .venv
     ) else (
-        echo   [2/4] Creating virtual environment (.venv)...
+        echo   [2/4] Creating virtual environment ^(.venv^)...
         "%PYEXE%" %PYARGS% -m venv .venv
         if errorlevel 1 (
             echo   [WARN] Could not create .venv - falling back to the system Python.
@@ -143,6 +148,22 @@ echo     set NC_PYTHON=...         use a specific python.exe
 echo.
 echo   Python 3.10+ is required. Detection order:
 echo     NC_PYTHON ^> .venv ^> py launcher ^> PATH ^> common folders ^> registry
+echo.
+pause
+endlocal
+exit /b 0
+
+REM --- Yalnız tespit modu (--check) -------------------------------------------
+:check_only
+echo   [OK] Python %PYVER% bulundu.
+if defined PYARGS (
+    echo        Komut : %PYEXE% %PYARGS%
+) else (
+    echo        Komut : %PYEXE%
+)
+"%PYEXE%" %PYARGS% -c "import sys;print('        Surum :', sys.version.split()[0], '/ 64-bit:', sys.maxsize > 2**32)"
+echo.
+echo   Kuruluma devam etmek icin:  Kurulum.bat
 echo.
 pause
 endlocal

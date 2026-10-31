@@ -6,6 +6,45 @@ Sürümleme: [SemVer](https://semver.org/lang/tr/)
 
 ---
 
+## [0.2.2] — 2026-10-31
+
+### Düzeltildi
+
+**Kurulum penceresi anında kapanıyordu (ZIP indirmesinde).**
+
+- **Kök neden: satır sonları.** `Kurulum.bat`, `Kisayol-Olustur.bat` ve
+  `Sunuculari-Kapat.bat` **LF** ile kaydedilmişti; CMD, LF-only batch
+  dosyalarında blok/`goto` ayrıştırmasını bozar → betik sessizce ölür.
+  - `.gitattributes` eklendi: `*.bat -text` (bayt olarak korunur), `*.ps1 eol=crlf`
+  - Tüm `.bat` dosyaları **CRLF**'e çevrildi (9 dosya)
+- **Blok içinde kaçışsız parantez.** `echo ... (.venv)...` bir `if (...)` bloğu
+  içinde CMD tarafından yeni blok sanılıyordu → ``> was unexpected`` hatası.
+  `^(` / `^)` ile kaçışlandı (`Kurulum.bat`, `Run.bat`).
+- **`--check` etiketi eksikti** → `goto :check_only` "label not found" veriyordu.
+  Etiket eklendi; `--check` artık Python'u tespit edip kurulum yapmadan çıkar.
+
+### Eklendi
+
+- **`Kurulum.bat --check`** — yalnız Python tespiti (kurulum yapmaz);
+  sürüm + 64-bit bilgisini yazar. Başka makinede ilk kontrol için.
+- **`tools\py_bul.bat` yoksa yedek tespit** — eksik/bozuk indirmede bile
+  `where python` + `py -3` ile devam eder.
+- **Python yoksa net uyarı** — `winget install --id Python.Python.3.12 -e`,
+  python.org bağlantısı ve `NC_PYTHON` örneği; pencere `pause` ile açık kalır.
+
+### Ölçüm
+
+```
+Önce : Kurulum.bat LF, 149 LF / 0 CRLF → pencere anında kapanıyor (çıkış 255)
+Sonra: 9 .bat dosyası CRLF, --check → çıkış 0
+Uçtan uca (temiz kopya, hafif gereksinimler):
+  .venv oluştu · paketler kuruldu · "Setup complete" · çıkış 0
+Python yok senaryosu (stub bulucu):
+  "[ERROR] Python 3.10+ was not found" + winget önerisi + pause · çıkış 1
+```
+
+---
+
 ## [0.2.1] — 2026-10-30
 
 ### Düzeltildi

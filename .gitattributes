@@ -1,0 +1,12 @@
+# Batch dosyaları bayt olarak korunur: CMD, LF-only batch dosyalarında
+# goto/blok ayrıştırmasını bozar (ölçüldü: Kurulum.bat LF iken pencere kapanıyordu).
+*.bat -text
+*.cmd -text
+
+# PowerShell ve shell
+*.ps1 text eol=crlf
+*.sh  text eol=lf
+
+# Python / dokümanlar
+*.py  text eol=lf
+*.md  text eol=lf

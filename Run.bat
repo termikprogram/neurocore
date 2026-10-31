@@ -59,9 +59,9 @@ if not exist "!PYWEXE!" set "PYWEXE="
 
 echo   Python      : !PYEXE!
 if defined PYWEXE (
-    echo   Launcher    : !PYWEXE!  (no console window^)
+    echo   Launcher    : !PYWEXE!  ^(no console window^)
 ) else (
-    echo   Launcher    : !PYEXE!  (console will be minimised^)
+    echo   Launcher    : !PYEXE!  ^(console will be minimised^)
 )
 echo   Workspace   : %CD%
 echo   Interface   : http://127.0.0.1:8791/
