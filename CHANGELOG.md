@@ -27,6 +27,18 @@ Sürümleme: [SemVer](https://semver.org/lang/tr/)
 Önce : git ls-files → __init__.py = 0, __main__.py = 0
 Sonra: __init__.py = 16, __main__.py = 2
 Uygulama (temiz kopya, .venv): python -m neurocore.app → HTTP 200
+
+### Düzeltildi (devamı)
+
+**Türkçe Windows konsolunda Unicode çökmesi.**
+- `neurocore/app/launcher.py` kutu çizim karakterlerini (`─`) doğrudan yazdırıyordu;
+  konsol `cp1254` olduğunda `UnicodeEncodeError: 'charmap' codec can't encode`
+  ile uygulama açılmadan ölüyordu.
+- `_utf8_konsol()` eklendi: `sys.stdout/stderr` → UTF-8 + `errors="replace"`;
+  `main()` başında çağrılır; konsol yoksa (`pythonw`) sessizce geçer.
+- `Run.bat`, `Run-Yolo.bat`, `Run-Here.bat` artık `PYTHONUTF8=1` ve
+  `PYTHONIOENCODING=utf-8` ayarlıyor (kemer + askı).
+- Ölçüm: temiz kopyada `python -m neurocore.app --port 8792` → **HTTP 200 (6 sn)**.
 ```
 
 ---

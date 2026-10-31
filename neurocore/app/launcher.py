@@ -29,6 +29,25 @@ import socket
 import subprocess
 import sys
 import threading
+
+
+def _utf8_konsol() -> None:
+    """
+    ⚠ Windows konsolu varsayılan olarak cp1254/cp1252 olabilir; kutu çizim
+    karakterleri (─, ·, ı) UnicodeEncodeError ile uygulamayı çökertiyordu
+    (ölçüldü: temiz kurulumda `python -m neurocore.app` → charmap hatası).
+    stdout/stderr'i UTF-8'e çevirir; konsol yoksa (pythonw) sessizce geçer.
+    """
+    for akis in (sys.stdout, sys.stderr):
+        try:
+            akis.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+    try:
+        os.environ.setdefault("PYTHONIOENCODING", "utf-8")
+    except Exception:
+        pass
+
 import time
 import webbrowser
 from pathlib import Path
@@ -1124,6 +1143,7 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Optional[List[str]] = None) -> int:
     """Uygulama giriş noktası."""
+    _utf8_konsol()
     arguments = build_parser().parse_args(argv)
 
     workspace = arguments.workspace or os.getcwd()

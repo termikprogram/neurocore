@@ -23,6 +23,10 @@ echo.
 REM --- Locate Python (portable: tools\py_bul.bat) ---------------------------
 REM  Tespit: NC_PYTHON > .venv > py launcher > PATH > ortak klasorler > registry
 call "%~dp0tools\py_bul.bat"
+
+REM UTF-8 çıktı (Türkçe Windows konsolu cp1254 olabilir)
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 if not defined PYEXE (
     echo   [ERROR] Python 3.10+ was not found on this machine.
     echo.
