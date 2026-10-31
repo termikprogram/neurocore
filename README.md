@@ -130,7 +130,8 @@ Nothing is hard-coded to CUDA 12.4 any more.
 ### Windows — one-click setup
 
 ```bat
-Kurulum.bat
+Kurulum.bat          :: Turkish name
+installation.bat     :: English name (same installer, forwards all arguments)
 ```
 
 Python is found automatically (`.venv` → `py` launcher → PATH → common folders → registry).

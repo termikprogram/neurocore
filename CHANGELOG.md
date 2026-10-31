@@ -6,6 +6,25 @@ Sürümleme: [SemVer](https://semver.org/lang/tr/)
 
 ---
 
+## [0.2.3] — 2026-10-31
+
+### Eklendi
+
+- **`installation.bat`** — İngilizce adlı kurulum başlatıcısı. `Kurulum.bat` ile
+  aynı işi yapar ve **tüm argümanları ona iletir**:
+  `--check`, `--no-venv`, `--no-torch`, `--help`.
+  `Kurulum.bat` yanında yoksa anlaşılır hata verir.
+- İki ad da dokümanlarda (`README.md`, `docs/en/INSTALL.md`) belirtildi.
+
+### Ölçüm
+
+```
+installation.bat --check → "Python 3.10.11 bulundu ... 64-bit: True" · çıkış 0
+(Kurulum.bat'a iletilen argümanlar aynen çalışıyor)
+```
+
+---
+
 ## [0.2.2] — 2026-10-31
 
 ### Düzeltildi

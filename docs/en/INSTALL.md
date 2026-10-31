@@ -17,8 +17,9 @@
 
 ## 1b · Portable Python detection (no machine-specific paths)
 
-`Kurulum.bat`, `Run*.bat` and `kur_istemci.ps1` **do not hardcode** a Python
-path. They share one finder — `tools\py_bul.bat` — which tries, in order:
+`Kurulum.bat` (Turkish name) and `installation.bat` (English name, a thin
+launcher that forwards every argument) both use the same installer. Together with
+`Run*.bat` and `kur_istemci.ps1` they **do not hardcode** a Python path. They share one finder — `tools\py_bul.bat` — which tries, in order:
 
 ```
 1. %NC_PYTHON%                      explicit override (full path to python.exe)
