@@ -883,6 +883,15 @@ class Trainer:
 
         # ── Bellek doğrulaması ──
         amp = device.startswith("cuda") and HAS_TORCH
+        # ⚠ ÖLÇÜLDÜ (GTX 1080 Ti, sm_61): fp16 AMP eğitimi 28. adımda NaN gradyan
+        # ve ardından "CUDA error: an illegal memory access" ile çökertti;
+        # ağırlıklar kaydedilemedi. Pascal'da bf16 yok → AMP güvenli değil.
+        # `NC_AMP=0` ile kapatılabilir (varsayılan: kapalı bırakılabilir).
+        _amp_env = os.environ.get("NC_AMP", "").strip().lower()
+        if _amp_env in ("0", "false", "off"):
+            amp = False
+        elif _amp_env in ("1", "true", "on"):
+            amp = device.startswith("cuda") and HAS_TORCH
         gradient_checkpointing = pressure in ("WARNING", "CRITICAL")
         # `memory` her durumda tanımlı olmalı: aşağıdaki gözcü ayarı ve
         # eğitim döngüsü bu sözlüğü koşulsuz okur.
