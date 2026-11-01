@@ -165,6 +165,11 @@ class KnowledgeVault:
     name = "knowledge.vault"
 
     def __init__(self, root: Optional[str] = None) -> None:
+        # ⚠ ÖLÇÜLDÜ: `search_by_title` her çağrıda tüm kasayı yeniden
+        # ayrıştırıyordu (7.796 not × YAML). Müfredat kasaya yazılırken bu
+        # O(N²) olup eğitimi 78 dakika kilitlemişti. Başlık önbelleği:
+        # (küçük harf başlık, dosya yolu) listesi; yazma/silmede geçersiz kılınır.
+        self._baslik_onbellegi: Optional[List[Tuple[str, Path]]] = None
         """
         Args:
             root: Kasa kök dizini (None ise initialize'da config'ten alınır)
@@ -588,6 +593,13 @@ class KnowledgeVault:
                     logger.warning(f"Eski not dosyası silinemedi ({old_path}): {exc}")
 
         note.path = relative
+        # Başlık önbelleğini artımlı güncelle: tam yeniden tarama YOK
+        if self._baslik_onbellegi is not None:
+            self._baslik_onbellegi = [
+                k for k in self._baslik_onbellegi if k[1] != target
+            ]
+            self._baslik_onbellegi.append((note.title.lower(), target))
+
         with self._lock:
             self._path_index[note.id] = relative
             slug = note.title_slug
@@ -733,6 +745,10 @@ class KnowledgeVault:
                 return False
             with self._lock:
                 self._path_index.pop(note_id, None)
+            if self._baslik_onbellegi is not None:
+                self._baslik_onbellegi = [
+                    k for k in self._baslik_onbellegi if k[1] != path
+                ]
             self._emit("knowledge.note_deleted", {"id": note_id, "path": str(path), "hard": True})
             return True
 
@@ -848,6 +864,40 @@ class KnowledgeVault:
 
     # ─── Arama Yardımcıları (dosya sistemi düzeyi) ──────────────────────
 
+    # ── Başlık önbelleği (O(N²) kasa taramasını önler) ────────────────
+    def _baslik_onbellegini_tazele(self) -> None:
+        """Başlık önbelleğini geçersiz kılar (yazma/silme sonrası)."""
+        self._baslik_onbellegi = None
+
+    def _baslik_listesi(self) -> List[Tuple[str, Path]]:
+        """
+        (küçük harf başlık, yol) listesi — dosyaları **bir kez** tarar.
+
+        Frontmatter'ı tam YAML ile ayrıştırmak yerine yalnız `title:` satırı
+        okunur; 7.796 notta bile saniyeler sürer.
+        """
+        if self._baslik_onbellegi is not None:
+            return self._baslik_onbellegi
+
+        import re as _re
+
+        kalip = _re.compile(r"^title:\s*(.+?)\s*$", _re.MULTILINE)
+        liste: List[Tuple[str, Path]] = []
+        for path in self.iter_note_files(include_archive=True):
+            try:
+                with path.open("r", encoding="utf-8", errors="replace") as f:
+                    bas = f.read(2048)
+            except Exception:
+                continue
+            bulunan = kalip.search(bas)
+            if not bulunan:
+                continue
+            baslik = bulunan.group(1).strip().strip("'\"")
+            liste.append((baslik.lower(), path))
+        self._baslik_onbellegi = liste
+        logger.debug(f"Başlık önbelleği kuruldu: {len(liste)} not")
+        return liste
+
     def search_by_title(self, query: str, limit: int = 20,
                         exclude_kinds: Optional[Iterable[str]] = None
                         ) -> List[Tuple[Note, float]]:
@@ -867,18 +917,34 @@ class KnowledgeVault:
             return []
         needle = query.strip().lower()
         excluded = {str(k).strip() for k in (exclude_kinds or []) if str(k).strip()}
-        scored: List[Tuple[Note, float]] = []
-        for note in self.iter_notes(exclude_kinds=excluded or None):
-            title_lower = note.title.lower()
+        # Önbellek: dosya okumadan/ayrıştırmadan başlık taraması
+        if excluded:
+            adaylar = [(t, p) for t, p in self._baslik_listesi()]
+        else:
+            adaylar = self._baslik_listesi()
+
+        puanlar: List[Tuple[float, Path]] = []
+        for title_lower, path in adaylar:
             if needle in title_lower:
                 score = 0.75 + 0.25 * (len(needle) / max(1, len(title_lower)))
             else:
-                score = title_similarity(query, note.title)
+                score = title_similarity(query, title_lower)
                 if score < 0.35:
                     continue
-            scored.append((note, round(score, 4)))
-        scored.sort(key=lambda item: -item[1])
-        return scored[:limit]
+            puanlar.append((score, path))
+
+        puanlar.sort(key=lambda item: -item[0])
+        sonuc: List[Tuple[Note, float]] = []
+        for score, path in puanlar[: max(1, limit)]:
+            note = self._load_path(path)
+            if note is None:
+                continue
+            if excluded and note.kind in excluded:
+                continue
+            sonuc.append((note, round(score, 4)))
+            if len(sonuc) >= limit:
+                break
+        return sonuc
 
     def search_by_content(
         self,

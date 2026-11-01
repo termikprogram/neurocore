@@ -2854,9 +2854,16 @@ class NeuroCoreEngine:
 
             # Nezaket bilgilerini eğiticiye ve model durumuna aktar
             headroom = self._budget.get("headroom", {}) or {}
-            self._budget["enforce_headroom"] = bool(
+            # ⚠ ÖLÇÜLDÜ: kullanıcı eğitimi sırasında nezaket kapısı 600 sn'lik
+            # beklemelerle eğitimi kilitliyordu (78 dk, 0 adım). Kullanıcı açıkça
+            # eğitim istediğinde `NC_EGITIM_GUARD=0` ile kapı kapatılabilir.
+            _guard_env = os.environ.get("NC_EGITIM_GUARD", "").strip().lower()
+            _guard_acik = bool(
                 getattr(self.config.hardware, "enforce_headroom", True)
             )
+            if _guard_env in ("0", "false", "off"):
+                _guard_acik = False
+            self._budget["enforce_headroom"] = _guard_acik
             self._budget["headroom_factor"] = float(
                 getattr(self.config.hardware.headroom, "cpu", 0.90) or 0.90
             )
