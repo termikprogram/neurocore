@@ -57,7 +57,7 @@ LOWPOLY_LAYER_NAMES: Sequence[str] = (
 GODOT_LAYER_NAMES: Sequence[str] = (
     "godot_temel", "godot_3b", "godot_nesne", "godot_materyal",
     "godot_karakter", "godot_seviye", "godot_girdi", "godot_arayuz",
-    "godot_ses", "godot_ag", "godot_sahne",
+    "godot_ses", "godot_ag", "godot_sahne", "godot_efekt_ses",
 )
 
 #: Tüm katmanlar (yerel + ağ + lowpoly + godot)
@@ -98,6 +98,7 @@ LAYER_LABELS: Dict[str, str] = {
     "godot_ses": "Ses ve Müzik",
     "godot_ag": "Ağ (Master/Proxy Server)",
     "godot_sahne": "Sahne Kurulumu, Player ve Terrain Spawn",
+    "godot_efekt_ses": "Efektler (.tscn) ve Ses",
 }
 
 

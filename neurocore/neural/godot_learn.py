@@ -54,6 +54,7 @@ GODOT_LABELS: Dict[str, str] = {
     "godot_ses": "Ses ve Müzik",
     "godot_ag": "Ağ (Master/Proxy Server)",
     "godot_sahne": "Sahne Kurulumu, Player ve Terrain Spawn",
+    "godot_efekt_ses": "Efektler (.tscn) ve Ses",
 }
 
 
@@ -1822,6 +1823,13 @@ def _ag_lessons() -> List[Lesson]:
 
 # ─── Müfredat ───────────────────────────────────────────────────────────────
 
+def _efekt_ses_dersleri() -> List[Lesson]:
+    """Efekt (.tscn) ve ses dersleri (ayrı modülde)."""
+    from .godot_efekt_ses import _efekt_ses_lessons
+
+    return _efekt_ses_lessons()
+
+
 def _sahne_dersleri() -> List[Lesson]:
     """Sahne kurulumu / player.tscn / terrain spawn dersleri (ayrı modülde)."""
     from .godot_sahne import _sahne_lessons
@@ -1842,6 +1850,7 @@ def build_godot_curriculum(
     """
     builders = {
         "godot_sahne": _sahne_dersleri,
+        "godot_efekt_ses": _efekt_ses_dersleri,
         "godot_temel": _temel_lessons,
         "godot_3b": _ucb_lessons,
         "godot_nesne": _nesne_lessons,
